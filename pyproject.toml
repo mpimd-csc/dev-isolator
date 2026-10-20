@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dev-environment-isolator"
+version = "0.1.0"
+description = "A CLI tool template"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+dependencies = [
+    "pytest"
+]
+
+[project.scripts]
+dev-environment-isolator = "dev_environment_isolator.main:main"
+
+[project.urls]
+Homepage = "https://gitlab.mpi-magdeburg.mpg.de/templates/dev-environment-isolator"
+Issues = "https://gitlab.mpi-magdeburg.mpg.de/templates/dev-environment-isolator/-/work_items"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

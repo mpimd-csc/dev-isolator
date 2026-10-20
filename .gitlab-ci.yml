@@ -1,0 +1,23 @@
+default:
+    interruptible: true
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+
+stages:
+  - build
+
+python:
+  parallel:
+    matrix:
+      - PYTHON_VERSION:
+        - "3.11"
+        - "3.12"
+        - "3.13"
+        - "3.14"
+        - "3.15"
+  stage: build
+  image: gitlab.mpi-magdeburg.mpg.de/ci-images/python-images/${PYTHON_VERSION}:resolute
+  script:
+    - pip install -e .
+    - pytest
+
