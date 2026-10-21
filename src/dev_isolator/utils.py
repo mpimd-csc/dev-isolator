@@ -10,6 +10,25 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 from pathlib import Path
 
+# Global verbosity level, controlled via :func:`set_verbosity`.
+VERBOSITY = 0
+
+
+def set_verbosity(level: int) -> None:
+    """Set the global verbosity level used by :func:`dprint`."""
+    global VERBOSITY
+    VERBOSITY = level
+
+
+def dprint(level: int, *args, **kwargs) -> None:
+    """Print the message if the global verbosity is >= ``level``.
+
+    ``args`` and ``kwargs`` are forwarded to :func:`print`, so e.g.
+    ``file=sys.stderr`` works as usual.
+    """
+    if VERBOSITY >= level:
+        print(*args, **kwargs)
+
 
 def config_path(pattern):
     """Search for :param:`pattern` upwards from the current directory.

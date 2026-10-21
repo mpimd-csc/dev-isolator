@@ -13,6 +13,7 @@ import sys
 import podman.errors
 from .container_manager import ContainerDefintion
 from .functions import demo_function
+from .utils import set_verbosity
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -23,6 +24,14 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command")
+
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="count",
+        default=0,
+        help="Increase verbosity. Repeat for more details (-vv, -vvv).",
+    )
 
     subparsers.add_parser(
         "build",
@@ -49,6 +58,8 @@ def main() -> int:
     """Main CLI entry point."""
     parser = create_parser()
     args = parser.parse_args()
+
+    set_verbosity(args.verbose)
 
     definition = ContainerDefintion()
 

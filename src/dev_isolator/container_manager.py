@@ -27,6 +27,16 @@ def slugify_path(path: str | os.PathLike) -> str:
 
 
 class ContainerDefintion:
+    def __init__(self, container_file=None):
+        if container_file:
+            self.container_file = Path(container_file)
+            self.context_dir = self.container_file.parent
+        else:
+            self.context_dir = Path(__file__).parent / "container"
+            self.container_file = self.context_dir / "Containerfile"
+        if not self.container_file.is_file():
+            raise FileNotFoundError("No Containerfile found at"
+                                    f"{self.container_file}")
 
     def build_container(self, verbose=False):
         """Build an image from the Containerfile in the current path.
@@ -34,17 +44,12 @@ class ContainerDefintion:
         The image is tagged ``isolator:<slug_of_the_current_path>``.
         """
 
-        context_dir = Path(__file__).parent / "container" / "opencode"
-        containerfile = context_dir / "Containerfile"
-        if not containerfile.is_file():
-            raise FileNotFoundError(f"No Containerfile found in {context_dir}")
-
         tag = self.image_name()
         try:
             with podman.PodmanClient() as client:
                 image, build_logs = client.images.build(
-                    path=str(context_dir),
-                    dockerfile=str(containerfile),
+                    path=str(self.context_dir),
+                    dockerfile=str(self.container_file),
                     tag=tag,
                     rm=True,
                 )
