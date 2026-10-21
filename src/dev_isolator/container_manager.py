@@ -14,54 +14,157 @@ import subprocess
 import sys
 import time
 import podman.errors
+from tempfile import NamedTemporaryFile
 from pathlib import Path
-from .utils import dprint
+from .utils import dprint, Verbosity, get_verbosity
 
 IMAGE_PREFIX = "dev-isolator"
 
 
 def slugify_path(path: str | os.PathLike) -> str:
     """Return a slug (e.g. ``my-project``) suitable
-       for a container name/tag."""
+       for a container name/tag.
+
+    Replaces every character outside ``[a-zA-Z0-9]`` with ``-``,
+    collapses runs of such characters, strips leading/trailing ``-``
+    and lowercases the result.
+    """
     text = str(path)
     return re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
 
 
 class ContainerDefintion:
-    def __init__(self, container_file=None):
-        if container_file:
-            self.container_file = Path(container_file)
-            self.context_dir = self.container_file.parent
+    """Define, build and run the dev-isolator container for a project.
+
+    By default the ``Containerfile`` and build context shipped with
+    dev-isolator are used; both can be overridden through the
+    constructor. The image name and container name are derived from
+    the slug of the current working directory (see
+    :func:`slugify_path`).
+
+    When the image is built, every ``addon.*`` file is appended to
+    the used ``Containerfile``: first the addons bundled with
+    dev-isolator, then any addons found in the build context itself.
+    """
+
+    def __init__(self, container_file=None, context_dir=None):
+        """Set up the container definition.
+
+        :param container_file: Optional path to a custom Containerfile.
+            When ``None``, a ``Containerfile`` inside ``context_dir``
+            is used.
+        :param context_dir: Optional path to the build context
+            directory. When ``None``, the package's bundled
+            ``container`` directory is used.
+        :raises FileNotFoundError: if the resolved Containerfile does
+            not exist.
+        """
+        if context_dir:
+            self.context_dir = Path(context_dir)
         else:
             self.context_dir = Path(__file__).parent / "container"
+
+        if container_file:
+            self.container_file = Path(container_file)
+        else:
             self.container_file = self.context_dir / "Containerfile"
+
         if not self.container_file.is_file():
             raise FileNotFoundError("No Containerfile found at"
                                     f"{self.container_file}")
-        dprint(1, f"Container File: {self.container_file}")
-        dprint(1, f"Context Dir:    {self.context_dir}")
+        dprint(Verbosity.INFO, f"Container File: {self.container_file}")
+        dprint(Verbosity.INFO, f"Context Dir:    {self.context_dir}")
 
-    def build_container(self, verbose=False):
-        """Build an image from the Containerfile in the current path.
+    def addon_files(self):
+        """Return all ``addon.*`` files appended to the Containerfile.
 
-        The image is tagged ``isolator:<slug_of_the_current_path>``.
+        The addons bundled with dev-isolator come first, followed by
+        any ``addon.*`` files in the build context itself (sorted by
+        file name). When the build context *is* the bundled directory,
+        every file is only returned once.
+
+        :returns: List of paths to the addon files.
+        """
+        bundled_dir = Path(__file__).parent / "container"
+
+        addons = []
+        seen = set()
+        for directory in (bundled_dir, self.context_dir):
+            if not directory.is_dir():
+                continue
+            for addon in sorted(directory.glob("addon.*")):
+                if not addon.is_file():
+                    continue
+                resolved = addon.resolve()
+                if resolved not in seen:
+                    seen.add(resolved)
+                    addons.append(resolved)
+        return addons
+
+    def merged_container_file_content(self) -> str:
+        """Return the used Containerfile with all addons appended.
+
+        Starts with the content of ``self.container_file`` and appends
+        the content of every file from :meth:`addon_files`, separated
+        by a comment naming the addon file.
+        """
+        text = self.container_file.read_text(encoding="utf-8")
+        for addon in self.addon_files():
+            text += f"\n\n# --- appended from {addon.name} ---\n"
+            text += addon.read_text(encoding="utf-8").rstrip("\n") + "\n"
+        return text
+
+    def build_container(self):
+        """Build the image defined by this container definition.
+
+        Builds from the used Containerfile with all ``addon.*`` files
+        appended (see :meth:`merged_container_file_content`) and the
+        build context as context. The image is tagged
+        ``dev-isolator:<slug_of_the_current_path>``.
+
+        The merged Containerfile is written into a temporary copy of
+        the build context, so the original directory is not modified.
+
+        When the global verbosity (see :func:`utils.set_verbosity`) is
+        at least ``Verbosity.INFO`` (e.g. ``--verbose``), the build
+        log is streamed to stdout as it arrives.
+
+        :raises RuntimeError: if the podman build fails.
         """
 
         tag = self.image_name()
+
         try:
             with podman.PodmanClient() as client:
-                image, build_logs = client.images.build(
-                    path=str(self.context_dir),
-                    dockerfile=str(self.container_file),
-                    tag=tag,
-                    rm=True,
-                )
+                for addon in self.addon_files():
+                    dprint(Verbosity.INFO, f"Appending addon: {addon}")
+                with NamedTemporaryFile(
+                        "w",
+                        encoding="utf-8",
+                        prefix="dev-isolator-containerfile-"
+                        ) as merged_container_file:
+                    dprint(Verbosity.INFO, "Created temporary Containerfile "
+                           f"{merged_container_file.name}")
+                    merged_container_file.write(
+                            self.merged_container_file_content())
+                    # Make sure the content reaches disk before podman
+                    # reads the file during the build.
+                    merged_container_file.flush()
+
+                    image, build_logs = client.images.build(
+                        path=str(self.context_dir),
+                        dockerfile=merged_container_file.name,
+                        tag=tag,
+                        rm=True,
+                        forcerm=True,
+                        pull=True
+                        )
         except podman.errors.BuildError as e:
             raise RuntimeError(f"Failed to build image {tag}: {e}") from e
         except podman.errors.APIError as e:
             raise RuntimeError(f"Podman API error while building {tag}: {e}")
 
-        if verbose:
+        if get_verbosity > Verbosity.DEBUG:
             for entry in build_logs:
                 if isinstance(entry, bytes):
                     print(f"[build] {entry.decode(errors='replace').strip()}")
@@ -75,14 +178,19 @@ class ContainerDefintion:
     def run_container(self, interactive_shell: str = "bash"):
         """Open an interactive terminal/shell inside the container.
 
-        Creates the container from the image (or reuses one created
-        earlier), ensures it is running and then attaches the local
-        terminal to a shell inside the container.
+        Builds the image if needed, creates the container from it (or
+        reuses one created earlier), ensures it is running and then
+        attaches the local terminal to a shell inside the container.
+
+        :param interactive_shell: Shell to start inside the container.
+        :returns: The exit code of the shell session.
+        :raises RuntimeError: if the container does not reach the
+            ``running`` state.
 
         The interactive session itself is attached via the local
         ``podman exec -it`` CLI, because the podman Python bindings
         cannot bridge stdin/TTY to the podman service (their
-        ``attach``/``attach_socket``/``exec_run	socket=True`` are not
+        ``attach``/``attach_socket``/``exec_run(socket=True)`` are not
         implemented).
         """
 
@@ -147,14 +255,14 @@ class ContainerDefintion:
         return exit_code
 
     def image_name(self) -> str:
-        """Return the image name ``isolator:<slug_of_the_current_path>``."""
+        """Return the image name ``dev-isolator:<slug_of_the_current_path>``."""
         return f"{IMAGE_PREFIX}:{self.current_path_slug()}"
 
     def container_name(self) -> str:
         """Return a valid container name derived from the current path tag.
 
         Podman container names cannot contain ':', so the tag's
-        ``isolator:slug`` form becomes ``isolator-slug``.
+        ``dev-isolator:slug`` form becomes ``dev-isolator-slug``.
         """
         return self.image_name().replace(":", "-")
 

@@ -11,7 +11,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 import argparse
 import sys
 from .container_manager import ContainerDefintion
-from .utils import set_verbosity, config_path
+from .utils import set_verbosity, config_path, Verbosity, dprint
 
 DEFAULT_SHELL = "bash"
 
@@ -33,6 +33,10 @@ def create_parser() -> argparse.ArgumentParser:
         help="Increase verbosity. Repeat for more details (-vv, -vvv).",
     )
 
+    subparsers.add_parser(
+        "build",
+        help="Build the current devisolator image")
+
     run_parser = subparsers.add_parser(
         "run",
         help="Open a terminal/shell inside the container "
@@ -50,7 +54,16 @@ def create_parser() -> argparse.ArgumentParser:
 
 
 def run(args) -> int:
-    definition = ContainerDefintion()
+    config = config_path(".devisolator")
+    context_dir = config.parent
+    container_file = config / "Containerfile"
+
+    dprint(Verbosity.INFO, f"Found .devisolator directory in {config}")
+
+    if config:
+        definition = ContainerDefintion(container_file, context_dir)
+    else:
+        definition = ContainerDefintion()
 
     try:
         return definition.run_container(args.shell)
@@ -59,17 +72,42 @@ def run(args) -> int:
         return 1
 
 
+def build(args) -> int:
+    config = config_path(".devisolator")
+    context_dir = config.parent
+    container_file = config / "Containerfile"
+
+    dprint(Verbosity.INFO, f"Found .devisolator directory in {config}")
+
+    if config:
+        definition = ContainerDefintion(container_file, context_dir)
+    else:
+        definition = ContainerDefintion()
+
+    try:
+        return definition.build_container()
+    except Exception as e:
+        print(f"An error occured: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main() -> int:
     """Main CLI entry point."""
     parser = create_parser()
     args = parser.parse_args()
 
-    set_verbosity(args.verbose)
+    set_verbosity(Verbosity(args.verbose))
+
+    # Without a subcommand, behave as if "run" was specified.
+    if args.command is None:
+        args.command = "run"
+        args.shell = DEFAULT_SHELL
 
     if args.command == "run":
         return run(args)
+    if args.command == "build":
+        return build(args)
     return 0
-
-
 if __name__ == "__main__":
     sys.exit(main())
