@@ -46,18 +46,19 @@ def slugify_path(path: str | os.PathLike) -> str:
 
 
 def read_enabled_addons(addons_file: Path) -> set[str]:
-    """Return the addon names enabled in an ``addons.yaml`` file.
+    """Return the addon names enabled in a config (``config.yaml``) file.
 
     The file is expected to have the shape::
 
-        enabled:
+        addons_enabled:
           - opencode
           - my-addon
 
-    :param addons_file: Path to the ``addons.yaml`` file.
+    :param addons_file: Path to the config file (``config.yaml``).
     :returns: The set of enabled addon names (possibly empty).
     :raises RuntimeError: if the file is not valid YAML, does not
-        contain a mapping, or the ``enabled`` entry is not a list.
+        contain a mapping, or the ``addons_enabled`` entry is not a
+        list.
     """
     try:
         data = yaml.safe_load(addons_file.read_text(encoding="utf-8"))
@@ -69,14 +70,14 @@ def read_enabled_addons(addons_file: Path) -> set[str]:
     if not isinstance(data, dict):
         raise RuntimeError(
             f"Invalid addons file {addons_file}: "
-            "expected a mapping with an 'enabled' key")
+            "expected a mapping with an 'addons_enabled' key")
     enabled = data.get("addons_enabled")
     if enabled is None:
         return set()
     if not isinstance(enabled, list):
         raise RuntimeError(
             f"Invalid addons file {addons_file}: "
-            "'enabled' must be a list of addon names")
+            "'addons_enabled' must be a list of addon names")
     return {str(name) for name in enabled}
 
 
@@ -90,11 +91,11 @@ class ContainerDefintion:
     :func:`slugify_path`).
 
     When the image is built, every ``addon.*`` file whose name is
-    enabled in an ``addons.yaml`` file is appended to the used
-    ``Containerfile``. Only the first found ``addons.yaml`` is used:
-    the ``.devisolator/addons.yaml`` in the build context when it
+    enabled in a ``config.yaml`` file is appended to the used
+    ``Containerfile``. Only the first found ``config.yaml`` is used:
+    the ``.devisolator/config.yaml`` in the build context when it
     exists, otherwise the one bundled with dev-isolator. Without any
-    ``addons.yaml``, every ``addon.*`` file is appended.
+    ``config.yaml``, every ``addon.*`` file is appended.
     """
 
     def __init__(self, container_file=None, context_dir=None):
@@ -131,13 +132,13 @@ class ContainerDefintion:
         dprint(Verbosity.INFO, f"Bundle Dir:     {self.bundled_dir}")
 
     def config_file(self) -> Path | None:
-        """Return the active ``addons.yaml`` file controlling the addons.
+        """Return the active ``config.yaml`` file controlling the addons.
 
-        The ``.devisolator/addons.yaml`` in the build context is used
-        when it exists; otherwise the bundled ``addons.yaml`` is used.
+        The ``.devisolator/config.yaml`` in the build context is used
+        when it exists; otherwise the bundled ``config.yaml`` is used.
 
         :returns: The resolved (absolute) path of the active
-                  ``addons.yaml`` file, or ``None`` when neither
+                  ``config.yaml`` file, or ``None`` when neither
                   exists.
         """
         for directory in (self.context_dir / DEV_ISOLATOR_DIR,
@@ -152,9 +153,9 @@ class ContainerDefintion:
     def enabled_addons(self) -> set[str] | None:
         """Return the names of the enabled addons.
 
-        Only the first ``addons.yaml`` file found by
+        Only the first ``config.yaml`` file found by
         :meth:`config_file` is used: the
-        ``.devisolator/addons.yaml`` in the build context when it
+        ``.devisolator/config.yaml`` in the build context when it
         exists, otherwise the bundled one.
 
         The result is computed once and cached for the lifetime of
@@ -164,9 +165,9 @@ class ContainerDefintion:
         again.
 
         :returns: The set of enabled addon names, or ``None`` when
-            no ``addons.yaml`` file exists at all (in which case
+            no ``config.yaml`` file exists at all (in which case
             every ``addon.*`` file is used).
-        :raises RuntimeError: if an ``addons.yaml`` file is invalid.
+        :raises RuntimeError: if a ``config.yaml`` file is invalid.
         """
         if self._enabled_addons is _UNSET:
             addon_file = self.config_file()
@@ -192,7 +193,7 @@ class ContainerDefintion:
         Only addons whose name (the part after ``addon.``, e.g.
         ``opencode`` for ``addon.opencode``) is enabled via
         :meth:`enabled_addons` are returned. Without any
-        ``addons.yaml`` file, every ``addon.*`` file is returned.
+        ``config.yaml`` file, every ``addon.*`` file is returned.
 
         Like :meth:`enabled_addons`, the result is computed once and
         cached for the lifetime of this instance, so the addon

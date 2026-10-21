@@ -238,7 +238,8 @@ class TestBuildTraceOutput:
         container_file = config_dir / "Containerfile"
         container_file.write_text("FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "addons.yaml").write_text("enabled:\n  - mine\n")
+        (config_dir / "config.yaml").write_text(
+            "addons_enabled:\n  - mine\n")
         return ContainerDefintion(container_file, tmp_path)
 
     @pytest.fixture
