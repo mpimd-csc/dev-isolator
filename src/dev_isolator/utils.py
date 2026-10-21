@@ -1,4 +1,4 @@
-""" Utility functions for dev-environment-isolator
+""" Utility functions for dev-isolator
 
 Copyright (C) 2026 Captain Hook
 

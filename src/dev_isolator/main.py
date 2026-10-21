@@ -1,4 +1,4 @@
-"""CLI entry point for dev-environment-isolator.
+"""CLI entry point for dev-isolator.
 
 Copyright (C) 2026 Captain Hook
 
@@ -18,7 +18,7 @@ from .functions import demo_function
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
-        prog="dev-environment-isolator",
+        prog="dev-isolator",
         description="Bla",
     )
 
@@ -62,7 +62,7 @@ def main() -> int:
         except podman.errors.ImageNotFound:
             print(
                 f"No image for the current path ({definition.image_name()}). "
-                "Run 'dev-environment-isolator build' first.",
+                "Run 'dev-isolator build' first.",
                 file=sys.stderr,
             )
             return 1

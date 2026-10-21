@@ -1,4 +1,4 @@
-""" Demo functions for dev-environment-isolator
+""" Demo functions for dev-isolator
 
 Copyright (C) 2026 Captain Hook
 

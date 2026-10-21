@@ -1,4 +1,4 @@
-"""Manage container definitions (build/create) for dev-environment-isolator.
+"""Manage container definitions (build/create) for dev-isolator.
 
 Copyright (C) 2026 Captain Hook
 

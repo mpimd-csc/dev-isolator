@@ -1,4 +1,4 @@
-# dev-environment-isolator
+# dev-isolator
 
 This project contains a template for Python based command line applications.
 If you want to start new project, you have to fork this project and remove
@@ -15,7 +15,7 @@ rm rename.sh
 ```
 The new project name must only contain the characters from `a` to `z`, numbers,
 hyphens, or underscores. Hyphens are replaced by underscores, where Python SLUGs
-are required. For example this project is named `dev-environment-isolator` but
+are required. For example this project is named `dev-isolator` but
 the import name for python is 'dev_isolator.'
 
 # 2. Check Licenses, README
@@ -44,7 +44,7 @@ Now, this is your task.
 ## Installation
 
 ```bash
-pip install dev-environment-isolator
+pip install dev-isolator
 ```
 
 Or for development:
@@ -58,7 +58,7 @@ pip install -e .
 ### CLI
 
 ```bash
-dev-environment-isolator
+dev-isolator
 
 # or
 python -m dev_isolator
