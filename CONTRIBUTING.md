@@ -1,6 +1,6 @@
 # Contribution Guide
 
-Thank you for considering contributing to the EXAMPLE PROJECT project!
+Thank you for considering contributing to the dev-isolator project!
 We welcome contributions from everyone. Please follow these guidelines to ensure
 a smooth contribution process.
 
@@ -13,7 +13,7 @@ a smooth contribution process.
    you accept the conditions from this contribution guide.
 4. **Commit Changes**: Commit your changes with a clear and descriptive commit message.
 5. **Push Changes**: Push your changes to your forked repository.
-6. **Submit a Pull Request/Merge Request**: Go to the EXAMPLE PROJECT repository.
+6. **Submit a Pull Request/Merge Request**: Go to the dev-isolator repository.
    Provide a detailed description of your changes and any related issues.
 
 ## Code Style Guide
@@ -27,12 +27,12 @@ details.
 
 By contributing to this project, you agree to the following terms regarding copyright and licensing:
 
-- **Copyright Assignment**: You agree that the EXAMPLE PROJECT authors retain the copyright to the
+- **Copyright Assignment**: You agree that the dev-isolator authors retain the copyright to the
   entire code-base, including your contributions. This means that while you will be acknowledged as
-  a contributor, the copyright of the code remains with the EXAMPLE PROJECT authors. The EXAMPLE PROJECT authors are
+  a contributor, the copyright of the code remains with the dev-isolator authors. The dev-isolator authors are
   represented by the current maintainers as listed in the [CONTRIBUTORS.md](./CONTRIBUTORS.md) file.
 
-- **Right to Re-license**: The EXAMPLE PROJECT authors reserve the right to re-license the entire
+- **Right to Re-license**: The dev-isolator authors reserve the right to re-license the entire
   code-base, including your contributions, under different terms. This could involve changing the
   licensing terms to better suit the project's goals or to comply with legal requirements. This
   includes also commercial licensing or moving between GNU GPL and BSD/MIT.

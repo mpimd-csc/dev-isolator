@@ -3,6 +3,6 @@ Contributors
 
 Main Authors:
 -------------
-* The Main Guy
+* Martin Köhler
 
 

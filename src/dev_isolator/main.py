@@ -1,6 +1,6 @@
 """CLI entry point for dev-isolator.
 
-Copyright (C) 2026 Captain Hook
+Copyright (C) 2026 Martin Köhler
 
 This program comes with ABSOLUTELY NO WARRANTY.
 This is free software, and you are welcome to redistribute it
@@ -10,10 +10,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 import argparse
 import sys
-import podman.errors
 from .container_manager import ContainerDefintion
-from .functions import demo_function
-from .utils import set_verbosity
+from .utils import set_verbosity, config_path
+
+DEFAULT_SHELL = "bash"
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -33,11 +33,6 @@ def create_parser() -> argparse.ArgumentParser:
         help="Increase verbosity. Repeat for more details (-vv, -vvv).",
     )
 
-    subparsers.add_parser(
-        "build",
-        help="Build the image isolator:<slug_of_the_current_path>.",
-    )
-
     run_parser = subparsers.add_parser(
         "run",
         help="Open a terminal/shell inside the container "
@@ -47,11 +42,21 @@ def create_parser() -> argparse.ArgumentParser:
         "--shell",
         "-s",
         type=str,
-        default="bash",
-        help="Shell to start inside the container. Default: bash.",
+        default=DEFAULT_SHELL,
+        help=f"Shell to start inside the container. Default: {DEFAULT_SHELL}.",
     )
 
     return parser
+
+
+def run(args) -> int:
+    definition = ContainerDefintion()
+
+    try:
+        return definition.run_container(args.shell)
+    except Exception as e:
+        print(f"An error occured: {e}", file=sys.stderr)
+        return 1
 
 
 def main() -> int:
@@ -61,30 +66,8 @@ def main() -> int:
 
     set_verbosity(args.verbose)
 
-    definition = ContainerDefintion()
-
-    if args.command == "build":
-        definition.build_container()
-        return 0
-
     if args.command == "run":
-        try:
-            return definition.run_container(args.shell)
-        except podman.errors.ImageNotFound:
-            print(
-                f"No image for the current path ({definition.image_name()}). "
-                "Run 'dev-isolator build' first.",
-                file=sys.stderr,
-            )
-            return 1
-
-    # Diagnose why just connecting would fail
-    try:
-        with podman.PodmanClient() as client:
-            client.ping()
-    except Exception as e:
-        print(f"Cannot connect to podman: {e}", file=sys.stderr)
-        return 1
+        return run(args)
     return 0
 
 

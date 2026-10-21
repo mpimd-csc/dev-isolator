@@ -1,6 +1,6 @@
 """Allow running as `python -m dev_isolator`.
 
-Copyright (C) 2026 Captain Hook
+Copyright (C) 2026 Martin Köhler
 
 This program comes with ABSOLUTELY NO WARRANTY.
 This is free software, and you are welcome to redistribute it

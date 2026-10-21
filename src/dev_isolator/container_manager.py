@@ -1,6 +1,6 @@
 """Manage container definitions (build/create) for dev-isolator.
 
-Copyright (C) 2026 Captain Hook
+Copyright (C) 2026 Martin Köhler
 
 This program comes with ABSOLUTELY NO WARRANTY.
 This is free software, and you are welcome to redistribute it
@@ -15,8 +15,9 @@ import sys
 import time
 import podman.errors
 from pathlib import Path
+from .utils import dprint
 
-IMAGE_PREFIX = "isolator"
+IMAGE_PREFIX = "dev-isolator"
 
 
 def slugify_path(path: str | os.PathLike) -> str:
@@ -37,6 +38,8 @@ class ContainerDefintion:
         if not self.container_file.is_file():
             raise FileNotFoundError("No Containerfile found at"
                                     f"{self.container_file}")
+        dprint(1, f"Container File: {self.container_file}")
+        dprint(1, f"Context Dir:    {self.context_dir}")
 
     def build_container(self, verbose=False):
         """Build an image from the Containerfile in the current path.

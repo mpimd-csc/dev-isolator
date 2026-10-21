@@ -1,0 +1,51 @@
+# EditorConfig: https://editorconfig.org
+root = true
+
+# Grundeinstellungen für alle Dateien
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Python
+[*.py]
+indent_size = 4
+max_line_length = 79
+
+# Python-Projekt- und Build-Konfiguration
+[*.{toml,ini,cfg}]
+indent_style = space
+indent_size = 4
+
+# YAML: z. B. CI-Konfigurationen
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# JSON
+[*.json]
+indent_style = space
+indent_size = 2
+
+# Markdown
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = 0
+
+# Shell-Skripte
+[*.sh]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+
+# Git-Dateien
+[.gitignore]
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{lock,svg}]
+charset = utf-8
+

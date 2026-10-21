@@ -16,6 +16,9 @@ dependencies = [
 
 [project.scripts]
 dev-isolator = "dev_isolator.main:main"
+di = "dev_isolator.main:main"
+
+
 
 [project.urls]
 Homepage = "https://gitlab.mpi-magdeburg.mpg.de/templates/dev-isolator"
