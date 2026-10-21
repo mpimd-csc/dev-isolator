@@ -31,8 +31,23 @@ ADDON_CONFIG_FILE_PREFIX = "config."
 ADDON_CONFIG_FILE_SUFFIX = ".yaml"
 BUNDLE_DIR = "data"
 
+ADDON_FILE_PREFIX = "addon."
+ADDON_FILE_SUFFIX = ".jinja2"
+
 # Sentinel marking a not-yet-computed cached value.
 _UNSET = object()
+
+
+def addon_name(path: Path) -> str:
+    """Return the name of an addon file (``addon.<name>.jinja2``).
+
+    :param path: Path to an addon file; the addon name is the part
+        after ``addon.``, with the ``.jinja2`` template suffix
+        removed, e.g. ``opencode`` for ``addon.opencode.jinja2``.
+    :returns: The addon name.
+    """
+    return path.name.removeprefix(ADDON_FILE_PREFIX).removesuffix(
+        ADDON_FILE_SUFFIX)
 
 
 def read_enabled_addons(addons_file: Path) -> set[str]:
@@ -262,8 +277,9 @@ class AddonsConfiguration:
         are removed, so when the build context *is* the bundled
         directory, every file is only returned once.
 
-        Only addons whose name (the part after ``addon.``, e.g.
-        ``opencode`` for ``addon.opencode``) is enabled via
+        Only addons whose name (the part after ``addon.`` with the
+        ``.jinja2`` suffix removed, e.g. ``opencode`` for
+        ``addon.opencode.jinja2``) is enabled via
         :meth:`enabled_addons` are returned. Without any
         ``config.yaml`` file, every ``addon.*`` file is returned.
 
@@ -285,7 +301,7 @@ class AddonsConfiguration:
                 for addon in sorted(directory.glob("addon.*")):
                     if not addon.is_file():
                         continue
-                    name = addon.name.removeprefix("addon.")
+                    name = addon_name(addon)
                     if enabled is not None and name not in enabled:
                         dprint(Verbosity.INFO,
                                f"Skipping disabled addon: {addon.name}")
@@ -307,7 +323,8 @@ class AddonsConfiguration:
         :meth:`config_file`, the first found file wins.
 
         :param addon_name: Name of the addon (the part after
-            ``addon.`` in the addon file name).
+            ``addon.`` in the addon file name, with the ``.jinja2``
+            suffix removed).
         :returns: The resolved (absolute) path of the addon's config
             file, or ``None`` when neither exists.
         """
@@ -348,8 +365,8 @@ class AddonsConfiguration:
         environment: dict[str, str] = {}
         volumes: dict[str, dict] = {}
         for addon in self.addon_files():
-            addon_name = addon.name.removeprefix("addon.")
-            config_file = self.addon_config_file(addon_name)
+            name = addon_name(addon)
+            config_file = self.addon_config_file(name)
             if not config_file:
                 continue
             config = read_addon_config(config_file)
@@ -373,6 +390,8 @@ class AddonsConfiguration:
                                            " environment variables.")
                     continue
                 host = os.path.expanduser(os.path.expandvars(host))
+                container_path = os.path.expanduser(
+                        os.path.expandvars(container_path))
                 volumes[host] = {"bind": container_path, "mode": mode}
         dprint(Verbosity.TRACE, f"Environment: {str(environment)}")
         dprint(Verbosity.TRACE, f"Volumes: {str(volumes)}")

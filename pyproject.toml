@@ -12,7 +12,8 @@ license = { text = "GPL-3.0-or-later" }
 dependencies = [
     "pytest",
     "podman",
-    "pyyaml"
+    "pyyaml",
+    "jinja2"
 ]
 
 [project.scripts]
@@ -27,4 +28,7 @@ Issues = "https://gitlab.mpi-magdeburg.mpg.de/templates/dev-isolator/-/work_item
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+dev_isolator = ["data/*", "templates/*"]
 

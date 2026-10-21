@@ -9,6 +9,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -16,13 +17,17 @@ import tarfile
 import time
 import json
 from tempfile import NamedTemporaryFile
+from functools import lru_cache
+
 import podman.errors
+import jinja2
 from pathlib import Path
 from .addons_config import AddonsConfiguration, BUNDLE_DIR
 from .utils import dprint, Verbosity, get_verbosity
 
 IMAGE_PREFIX = "dev-isolator"
 OCI_IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
+TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 def slugify_path(path: str | os.PathLike) -> str:
@@ -37,6 +42,24 @@ def slugify_path(path: str | os.PathLike) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
 
 
+@lru_cache(maxsize=1)
+def _jinja_environment() -> jinja2.Environment:
+    """Return the (cached) shared jinja2 environment."""
+    return jinja2.Environment(
+        loader=jinja2.FileSystemLoader(TEMPLATES_DIR),
+        # Containerfile instructions, not HTML: no escaping.
+        autoescape=False,
+        keep_trailing_newline=True,
+    )
+
+
+@lru_cache(maxsize=1)
+def _host_user_template() -> jinja2.Template:
+    """Return the (cached) jinja2 template for the host user block."""
+    return _jinja_environment().get_template(
+        "host_user.containerfile.jinja2")
+
+
 class ContainerDefintion:
     """Define, build and run the dev-isolator container for a project.
 
@@ -46,9 +69,12 @@ class ContainerDefintion:
     the slug of the current working directory (see
     :func:`slugify_path`).
 
-    When the image is built, every ``addon.*`` file whose name is
-    enabled in a ``config.yaml`` file is appended to the used
-    ``Containerfile``. Only the first found ``config.yaml`` is used:
+    When the image is built, every ``addon.<name>.jinja2`` file whose
+    name is enabled in a ``config.yaml`` file is rendered as a jinja2
+    template and appended to the used ``Containerfile``. The addon
+    templates receive the same variables as the host user template
+    (see :meth:`host_user_containerfile_content`). Only the first
+    found ``config.yaml`` is used:
     the ``.devisolator/config.yaml`` in the build context when it
     exists, otherwise the one bundled with dev-isolator. Without any
     ``config.yaml``, every ``addon.*`` file is appended.
@@ -97,17 +123,78 @@ class ContainerDefintion:
         """Return the used Containerfile with all addons appended.
 
         Starts with the content of ``self.container_file`` and appends
-        the content of every file from
-        :meth:`AddonsConfiguration.addon_files`, separated
-        by a comment naming the addon file.
+        every addon file from :meth:`AddonsConfiguration.addon_files`
+        rendered as a jinja2 template (see
+        :meth:`host_user_containerfile_content` for the template
+        variables), separated by a comment naming the addon file.
+
+        Afterwards a host user (same UID, GID and username as the
+        invoking user, see :meth:`host_username`) is created and made
+        the image's default user, so shells and exec sessions run as
+        that user. It requires a Debian-style base image (``useradd``
+        and ``getent`` must exist).
         """
         text = self.container_file.read_text(encoding="utf-8")
+        text += "\n\n" + self.host_user_containerfile_content()
         for addon in self.addons.addon_files():
             text += f"\n\n# --- appended from {addon.name} ---\n"
-            text += addon.read_text(encoding="utf-8").rstrip("\n") + "\n"
+            template = _jinja_environment().from_string(
+                addon.read_text(encoding="utf-8"))
+            text += self.render_template(template).rstrip("\n") + "\n"
         text += "\n\n# --- workdir ---\n"
+        text += f"USER {ContainerDefintion.host_username()}\n"
         text += "WORKDIR /workspace\n"
         return text
+
+    @staticmethod
+    def render_template(template: jinja2.Template) -> str:
+        """Render a Containerfile jinja2 template with the host
+           context.
+
+        :param template: The template to render.
+        :returns: The rendered template text.
+        """
+        return template.render(
+            uid=os.getuid(),
+            gid=os.getgid(),
+            username=ContainerDefintion.host_username(),
+            home_dir=Path.home()
+        )
+
+    @staticmethod
+    def host_username() -> str:
+        """Return a username usable in the container for the host user.
+
+        Uses the username of the invoking host user (via
+        :func:`os.getuid`); invalid characters are replaced by ``_``.
+        When no matching host user is known or the name is not usable
+        for :command:`useradd`, a name starting with a letter is
+        derived from the UID.
+        """
+        uid = os.getuid()
+        try:
+            name = pwd.getpwuid(uid).pw_name
+        except KeyError:
+            name = ""
+        name = re.sub(r"[^a-zA-Z0-9_-]", "_", name).strip("-")
+        if not name or not name[0].isalpha():
+            name = f"user{uid}"
+        return name
+
+    def host_user_containerfile_content(self) -> str:
+        """Return the Containerfile instructions adding the host user.
+
+        Renders the ``templates/host_user.containerfile.jinja2``
+        template shipped with dev-isolator (see :const:`TEMPLATES_DIR`)
+        with the host context (see :meth:`render_template`), as do the
+        ``addon.*`` files in :meth:`merged_container_file_content`.
+
+        The template removes any pre-existing user/group occupying
+        those properties from the image and then creates a user whose
+        UID, GID and username match those of the invoking host user,
+        making it the image's default user.
+        """
+        return self.render_template(_host_user_template())
 
     def build_container(self, nocache=False):
         """Build the image defined by this container definition.
@@ -151,6 +238,14 @@ class ContainerDefintion:
         except podman.errors.APIError as e:
             raise RuntimeError(f"Podman API error while building {tag}: {e}") \
                 from e
+
+        if get_verbosity() >= Verbosity.TRACE:
+            for entry in build_logs:
+                if isinstance(entry, bytes):
+                    entry = json.loads(
+                        entry.decode(errors='replace').strip())
+                for stream in entry.get("stream", "").splitlines():
+                    print(f"[build] {stream}")
 
         print(f"Built image {image.id} tagged {tag}")
         return image
@@ -206,6 +301,10 @@ class ContainerDefintion:
                 # The image's entrypoint may exit immediately; keep
                 # the container alive so shells can exec into it.
                 entrypoint=["sleep", "infinity"],
+                # Run as the same UID/GID as the host user
+                # (podman's --userns=keep-id), so files created in
+                # the /workspace bind mount stay owned by the user.
+                userns_mode="keep-id",
                 environment=environment,
                 volumes=volumes,
                 detach=True,

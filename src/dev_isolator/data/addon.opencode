@@ -1,9 +1,0 @@
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        git \
-        gnupg \
-        jq && \
-        curl -fsSL https://opencode.ai/v2/install | bash
-ENV PATH="/root/.opencode/bin:${PATH}"

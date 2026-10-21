@@ -77,8 +77,10 @@ The configuration of a containerized dev environment lives in the
     - opencode
   ```
 
-- ``addon.<name>``: Containerfile instructions appended for the
-  addon `<name>`.
+- ``addon.<name>.jinja2``: A jinja2 template with the Containerfile
+  instructions appended for the addon `<name>`. It receives the
+  variables ``uid``, ``gid``, ``username`` and ``home_dir`` of the
+  invoking host user.
 - ``config.<addon>.yaml``: Runtime settings an addon requests for
   its container (see below).
 

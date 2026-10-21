@@ -1,0 +1,31 @@
+{#- Template for the host user block appended to the Containerfile.
+
+    Variables:
+    - uid:      UID to use inside the container (host UID).
+    - gid:      GID to use inside the container (host GID).
+    - username: Username usable inside the container.
+    - homedir:  Home directory
+
+    Existing users/groups occupying UID/GID/username are removed, so
+    exactly one container user with those properties remains.
+-#}
+# --- host user: same UID, GID and username as on the host ---
+RUN set -eux; \
+    # Remove users/groups already occupying UID/GID/username.
+    if getent passwd {{ uid }} >/dev/null 2>&1; then \
+        userdel --force --remove \
+            "$(getent passwd {{ uid }} | cut -d: -f1)"; \
+    fi; \
+    if getent passwd {{ username }} >/dev/null 2>&1; then \
+        userdel --force --remove {{ username }}; \
+    fi; \
+    if getent group {{ gid }} >/dev/null 2>&1; then \
+        groupdel "$(getent group {{ gid }} | cut -d: -f1)"; \
+    fi; \
+    if getent group {{ username }} >/dev/null 2>&1; then \
+        groupdel {{ username }}; \
+    fi; \
+    groupadd --gid {{ gid }} {{ username }}; \
+    useradd --uid {{ uid }} --gid {{ gid }} \
+        --create-home --home-dir {{ home_dir }} --shell /bin/bash {{ username }}
+USER {{ username }}

@@ -1,4 +1,6 @@
+USER root
 RUN apt update && apt install --yes curl
 RUN apt install --yes mc
+USER {{ username }}
 RUN curl -fsSL https://claude.ai/install.sh | bash
-ENV PATH="/root/.local/bin:${PATH}"
+ENV PATH="{{ home_dir }}/.local/bin:${PATH}"

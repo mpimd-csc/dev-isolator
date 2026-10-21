@@ -27,9 +27,38 @@ class TestMergedContainerfile:
         for addon in definition.addons.addon_files():
             assert addon.name in merged
         # The bundled opencode addon is enabled in the bundled
-        # addons.yaml and part of the package.
-        assert any(a.name == "addon.opencode" for a in definition.addons.addon_files())
+        # addons.yaml and part of the package (as a jinja2 template).
+        assert any(a.name == "addon.opencode.jinja2"
+                   for a in definition.addons.addon_files())
         assert "opencode" in merged
+
+    def test_host_user_is_appended(self, tmp_path: Path):
+        """A user matching the host's UID, GID and username is
+        appended to the Containerfile and made its default user."""
+        import os
+
+        container_file = tmp_path / "Containerfile"
+        container_file.write_text("FROM ubuntu:26.04\n")
+
+        definition = ContainerDefintion(container_file, tmp_path)
+        merged = definition.merged_container_file_content()
+
+        uid = os.getuid()
+        gid = os.getgid()
+        username = definition.host_username()
+        # Existing users/groups occupying the host UID/GID/username
+        # are removed before the user is created.
+        assert f"getent passwd {uid}" in merged
+        assert f"userdel --force --remove" in merged
+        assert f"userdel --force --remove {username}" in merged
+        assert f"groupdel" in merged
+        assert f"groupadd --gid {gid} {username}" in merged
+        assert f"useradd --uid {uid} --gid {gid}" in merged
+        assert f"USER {username}" in merged
+        # The USER instruction comes once, before the workdir block.
+        assert merged.count(f"USER {username}") == 1
+        assert merged.index(f"USER {username}") \
+            < merged.rindex("WORKDIR /workspace")
 
     def test_enabled_context_addons_are_appended(self, tmp_path: Path):
         """addon.* files in .devisolator are appended after the
@@ -84,7 +113,7 @@ class TestMergedContainerfile:
         assert definition.addons.config_file().name == "config.yaml"
         names = [a.name for a in definition.addons.addon_files()]
         assert "addon.mine" in names
-        assert "addon.opencode" not in names
+        assert "addon.opencode.jinja2" not in names
 
     def test_bundled_config_yaml_used_without_project_config(
             self, tmp_path: Path):
@@ -137,6 +166,31 @@ class TestMergedContainerfile:
 
         assert len(addons) == len({a for a in addons})
         assert addons  # the bundled directory ships at least one addon
+
+    def test_jinja2_addons_are_rendered(self, tmp_path: Path):
+        """addon.*.jinja2 files are rendered with the host context
+        before being appended to the Containerfile."""
+        import os
+
+        config_dir = tmp_path / ".devisolator"
+        config_dir.mkdir()
+        container_file = config_dir / "Containerfile"
+        container_file.write_text("FROM ubuntu:26.04\n")
+        (config_dir / "addon.rendered.jinja2").write_text(
+            "RUN echo user={{ username }} uid={{ uid }} "
+            "home={{ home_dir }}\n")
+        (config_dir / "config.yaml").write_text(
+            "addons_enabled:\n  - rendered\n")
+
+        definition = ContainerDefintion(container_file, tmp_path)
+        merged = definition.merged_container_file_content()
+
+        username = definition.host_username()
+        assert f"user={username}" in merged
+        assert f"uid={os.getuid()}" in merged
+        # No unrendered template markers remain.
+        assert "{{" not in merged
+        assert "{%" not in merged
 
 
 class FakeImage:
