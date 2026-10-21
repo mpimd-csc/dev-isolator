@@ -16,7 +16,7 @@ rm rename.sh
 The new project name must only contain the characters from `a` to `z`, numbers,
 hyphens, or underscores. Hyphens are replaced by underscores, where Python SLUGs
 are required. For example this project is named `dev-environment-isolator` but
-the import name for python is 'dev_environment_isolator.'
+the import name for python is 'dev_isolator.'
 
 # 2. Check Licenses, README
 
@@ -61,5 +61,5 @@ pip install -e .
 dev-environment-isolator
 
 # or
-python -m dev_environment_isolator
+python -m dev_isolator
 ```

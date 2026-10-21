@@ -10,11 +10,12 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "GPL-3.0-or-later" }
 dependencies = [
-    "pytest"
+    "pytest",
+    "podman"
 ]
 
 [project.scripts]
-dev-environment-isolator = "dev_environment_isolator.main:main"
+dev-environment-isolator = "dev_isolator.main:main"
 
 [project.urls]
 Homepage = "https://gitlab.mpi-magdeburg.mpg.de/templates/dev-environment-isolator"

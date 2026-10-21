@@ -1,0 +1,17 @@
+FROM ubuntu:26.04
+
+# Install baseline apt packages and Node.js 20 LTS via NodeSource.
+# apt cache is intentionally left available so AI tools can install
+# additional packages at runtime without re-running apt-get update.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        gnupg \
+        jq && \
+        curl -fsSL https://opencode.ai/v2/install | bash
+RUN apt install -y cmake
+
+ENV PATH="/root/.opencode/bin:${PATH}"
+WORKDIR /workspace

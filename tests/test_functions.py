@@ -4,7 +4,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 import pytest
-from dev_environment_isolator import demo_function
+from dev_isolator import demo_function
 
 class TestDemoFunction:
     """Test the demo_function"""

@@ -1,4 +1,4 @@
-"""Allow running as `python -m dev_environment_isolator`.
+"""Allow running as `python -m dev_isolator`.
 
 Copyright (C) 2026 Captain Hook
 
@@ -8,7 +8,7 @@ under certain conditions; see LICENSE for details.
 SPDX-License-Identifier: GPL-3.0-or-later
 """
 
-from dev_environment_isolator import main
+from dev_isolator import main
 import sys
 
 if __name__ == "__main__":
