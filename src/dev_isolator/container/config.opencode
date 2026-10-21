@@ -1,0 +1,4 @@
+environment:
+ - OPENCODE_CONFIG
+volumes:
+ - ${HOME}/.config/opencode:/root/.config/opencode

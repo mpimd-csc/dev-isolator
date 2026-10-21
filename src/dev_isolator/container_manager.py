@@ -14,13 +14,19 @@ import subprocess
 import sys
 import time
 import json
+import yaml
 import podman.errors
 from tempfile import NamedTemporaryFile
 from pathlib import Path
 from .utils import dprint, Verbosity, get_verbosity
 
 IMAGE_PREFIX = "dev-isolator"
+ADDONS_FILE_NAME = "addons.yaml"
+DEV_ISOLATOR_DIR = ".devisolator"
+BUNDLE_DIR = "container"
 
+# Sentinel marking a not-yet-computed cached value.
+_UNSET = object()
 
 def slugify_path(path: str | os.PathLike) -> str:
     """Return a slug (e.g. ``my-project``) suitable
@@ -34,6 +40,41 @@ def slugify_path(path: str | os.PathLike) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
 
 
+def read_enabled_addons(addons_file: Path) -> set[str]:
+    """Return the addon names enabled in an ``addons.yaml`` file.
+
+    The file is expected to have the shape::
+
+        enabled:
+          - opencode
+          - my-addon
+
+    :param addons_file: Path to the ``addons.yaml`` file.
+    :returns: The set of enabled addon names (possibly empty).
+    :raises RuntimeError: if the file is not valid YAML or the
+        ``enabled`` entry is not a list.
+    """
+    try:
+        data = yaml.safe_load(addons_file.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        raise RuntimeError(
+            f"Invalid addons file {addons_file}: {e}") from e
+    if data is None:
+        return set()
+    if not isinstance(data, dict):
+        raise RuntimeError(
+            f"Invalid addons file {addons_file}: "
+            "expected a mapping with an 'enabled' key")
+    enabled = data.get("enabled")
+    if enabled is None:
+        return set()
+    if not isinstance(enabled, list):
+        raise RuntimeError(
+            f"Invalid addons file {addons_file}: "
+            "'enabled' must be a list of addon names")
+    return {str(name) for name in enabled}
+
+
 class ContainerDefintion:
     """Define, build and run the dev-isolator container for a project.
 
@@ -43,9 +84,12 @@ class ContainerDefintion:
     the slug of the current working directory (see
     :func:`slugify_path`).
 
-    When the image is built, every ``addon.*`` file is appended to
-    the used ``Containerfile``: first the addons bundled with
-    dev-isolator, then any addons found in the build context itself.
+    When the image is built, every ``addon.*`` file whose name is
+    enabled in an ``addons.yaml`` file is appended to the used
+    ``Containerfile``. The enabled addons are the union of the list
+    in the ``addons.yaml`` shipped with dev-isolator and the one in
+    the project's ``.devisolator`` directory. Without any
+    ``addons.yaml``, every ``addon.*`` file is appended.
     """
 
     def __init__(self, container_file=None, context_dir=None):
@@ -63,7 +107,7 @@ class ContainerDefintion:
         if context_dir:
             self.context_dir = Path(context_dir)
         else:
-            self.context_dir = Path(__file__).parent / "container"
+            self.context_dir = Path(__file__).parent / BUNDLE_DIR
 
         if container_file:
             self.container_file = Path(container_file)
@@ -73,8 +117,63 @@ class ContainerDefintion:
         if not self.container_file.is_file():
             raise FileNotFoundError("No Containerfile found at"
                                     f"{self.container_file}")
+        self.bundled_dir = Path(__file__).parent / BUNDLE_DIR
+        self._enabled_addons = _UNSET
+        self._addon_files = _UNSET
+
         dprint(Verbosity.INFO, f"Container File: {self.container_file}")
         dprint(Verbosity.INFO, f"Context Dir:    {self.context_dir}")
+        dprint(Verbosity.INFO, f"Bundle Dir:     {self.bundled_dir}")
+
+    def addons_config_file(self) -> Path:
+        """Return the active ``addons.yaml`` files controlling the addons.
+
+        The ``.devisolator/addons.yaml`` comes first, followed by the
+        bundled ``addons.yaml``.
+
+        :returns: The resolved (absolute) path of the active
+                  ``addons.yaml`` file.
+        """
+        for directory in (self.context_dir / DEV_ISOLATOR_DIR,
+                          self.bundled_dir):
+            candidate = directory / ADDONS_FILE_NAME
+            dprint(Verbosity.TRACE, f"Try addon file {candidate}")
+            resolved = candidate.resolve()
+            if resolved.is_file():
+                return resolved
+        return Path()
+
+    def enabled_addons(self) -> set[str] | None:
+        """Return the names of the enabled addons.
+
+        The names from all ``addons.yaml`` files found by
+        :meth:`addons_config_files` are joined (union). Names
+        mentioned in the bundled *or* the project configuration
+        enable an addon.
+
+        The result is computed once and cached for the lifetime of
+        this instance, so repeated calls (e.g. from
+        :meth:`addon_files` and :meth:`merged_container_file_content`
+        during a build) do not print the addon managing messages
+        again.
+
+        :returns: The set of enabled addon names, or ``None`` when
+            no ``addons.yaml`` file exists at all (in which case
+            every ``addon.*`` file is used).
+        :raises RuntimeError: if an ``addons.yaml`` file is invalid.
+        """
+        if self._enabled_addons is _UNSET:
+            addon_file = self.addons_config_file()
+            if not addon_file:
+                enabled = None
+            else:
+                enabled = set()
+                names = read_enabled_addons(addon_file)
+                enabled |= names
+                dprint(Verbosity.INFO,
+                       f"Addons enabled in {addon_file}: {sorted(names)}")
+            self._enabled_addons = enabled
+        return self._enabled_addons
 
     def addon_files(self):
         """Return all ``addon.*`` files appended to the Containerfile.
@@ -84,23 +183,40 @@ class ContainerDefintion:
         file name). When the build context *is* the bundled directory,
         every file is only returned once.
 
+        Only addons whose name (the part after ``addon.``, e.g.
+        ``opencode`` for ``addon.opencode``) is enabled via
+        :meth:`enabled_addons` are returned. Without any
+        ``addons.yaml`` file, every ``addon.*`` file is returned.
+
+        Like :meth:`enabled_addons`, the result is computed once and
+        cached for the lifetime of this instance, so the addon
+        managing messages are only printed once per build.
+
         :returns: List of resolved (absolute) paths to the addon files.
         """
-        bundled_dir = Path(__file__).parent / "container"
+        if self._addon_files is _UNSET:
+            enabled = self.enabled_addons()
 
-        addons = []
-        seen = set()
-        for directory in (bundled_dir, self.context_dir):
-            if not directory.is_dir():
-                continue
-            for addon in sorted(directory.glob("addon.*")):
-                if not addon.is_file():
+            addons = []
+            seen = set()
+            for directory in (self.bundled_dir,
+                              self.context_dir / DEV_ISOLATOR_DIR):
+                if not directory.is_dir():
                     continue
-                resolved = addon.resolve()
-                if resolved not in seen:
-                    seen.add(resolved)
-                    addons.append(resolved)
-        return addons
+                for addon in sorted(directory.glob("addon.*")):
+                    if not addon.is_file():
+                        continue
+                    name = addon.name.removeprefix("addon.")
+                    if enabled is not None and name not in enabled:
+                        dprint(Verbosity.INFO,
+                               f"Skipping disabled addon: {addon.name}")
+                        continue
+                    resolved = addon.resolve()
+                    if resolved not in seen:
+                        seen.add(resolved)
+                        addons.append(resolved)
+            self._addon_files = addons
+        return list(self._addon_files)
 
     def merged_container_file_content(self) -> str:
         """Return the used Containerfile with all addons appended.

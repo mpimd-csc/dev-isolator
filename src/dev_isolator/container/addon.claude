@@ -1,0 +1,3 @@
+RUN apt update && apt install --yes curl
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/root/.local/bin/bin:${PATH}"

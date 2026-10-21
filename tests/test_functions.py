@@ -14,7 +14,7 @@ class TestMergedContainerfile:
     """Test appending addon.* files to the used Containerfile"""
 
     def test_bundled_addons_are_appended(self, tmp_path: Path):
-        """All addon.* files of the bundled container directory are
+        """Addon.* files enabled in the bundled addons.yaml are
         appended to the Containerfile."""
         container_file = tmp_path / "Containerfile"
         container_file.write_text("FROM ubuntu:26.04\n")
@@ -25,16 +25,18 @@ class TestMergedContainerfile:
         assert merged.startswith("FROM ubuntu:26.04\n")
         for addon in definition.addon_files():
             assert addon.name in merged
-        # The bundled opencode addon is part of the package.
+        # The bundled opencode addon is enabled in the bundled
+        # addons.yaml and part of the package.
         assert any(a.name == "addon.opencode" for a in definition.addon_files())
         assert "opencode" in merged
 
-    def test_context_addons_are_appended(self, tmp_path: Path):
+    def test_enabled_context_addons_are_appended(self, tmp_path: Path):
         """addon.* files in a custom build context are appended after
-        the bundled ones."""
+        the bundled ones when enabled in .devisolator/addons.yaml."""
         container_file = tmp_path / "Containerfile"
         container_file.write_text("FROM ubuntu:26.04\n")
         (tmp_path / "addon.mine").write_text("RUN echo custom\n")
+        (tmp_path / "addons.yaml").write_text("enabled:\n  - mine\n")
 
         definition = ContainerDefintion(container_file, tmp_path)
         merged = definition.merged_container_file_content()
@@ -43,6 +45,58 @@ class TestMergedContainerfile:
         assert "addon.mine" in names
         assert names.index("addon.mine") == len(names) - 1
         assert "RUN echo custom" in merged
+
+    def test_disabled_context_addons_are_skipped(self, tmp_path: Path):
+        """addon.* files not enabled in any addons.yaml are not
+        appended to the Containerfile."""
+        container_file = tmp_path / "Containerfile"
+        container_file.write_text("FROM ubuntu:26.04\n")
+        (tmp_path / "addon.mine").write_text("RUN echo custom\n")
+
+        definition = ContainerDefintion(container_file, tmp_path)
+        merged = definition.merged_container_file_content()
+
+        names = [a.name for a in definition.addon_files()]
+        assert "addon.mine" not in names
+        assert "RUN echo custom" not in merged
+
+    def test_enabled_addons_are_joined(self, tmp_path: Path):
+        """The bundled and the project addons.yaml lists are joined."""
+        container_file = tmp_path / "Containerfile"
+        container_file.write_text("FROM ubuntu:26.04\n")
+        (tmp_path / "addon.mine").write_text("RUN echo custom\n")
+        (tmp_path / "addons.yaml").write_text("enabled:\n  - mine\n")
+
+        definition = ContainerDefintion(container_file, tmp_path)
+        enabled = definition.enabled_addons()
+
+        # "opencode" comes from the bundled addons.yaml, "mine" from
+        # the project's .devisolator/addons.yaml.
+        assert enabled == {"opencode", "mine"}
+        names = [a.name for a in definition.addon_files()]
+        assert "addon.opencode" in names
+        assert "addon.mine" in names
+
+    def test_no_addons_yaml_enables_everything(self, tmp_path: Path,
+                                               monkeypatch):
+        """Without any addons.yaml file every addon.* file is used."""
+        container_file = tmp_path / "Containerfile"
+        container_file.write_text("FROM ubuntu:26.04\n")
+        (tmp_path / "addon.mine").write_text("RUN echo custom\n")
+
+        # Hide every addons.yaml file to simulate "no config at all".
+        real_is_file = Path.is_file
+        monkeypatch.setattr(
+            Path, "is_file",
+            lambda self: False if self.name == "addons.yaml"
+            else real_is_file(self))
+
+        definition = ContainerDefintion(container_file, tmp_path)
+
+        assert definition.addons_config_files() == []
+        assert definition.enabled_addons() is None
+        names = [a.name for a in definition.addon_files()]
+        assert "addon.mine" in names
 
     def test_no_duplicate_addons(self, tmp_path: Path):
         """When the build context is the bundled container directory
