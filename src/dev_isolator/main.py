@@ -85,7 +85,7 @@ def build(args) -> int:
         definition = ContainerDefintion()
 
     try:
-        return definition.build_container()
+        definition.build_container()
     except Exception as e:
         print(f"An error occured: {e}", file=sys.stderr)
         return 1

@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import time
+import json
 import podman.errors
 from tempfile import NamedTemporaryFile
 from pathlib import Path
@@ -83,7 +84,7 @@ class ContainerDefintion:
         file name). When the build context *is* the bundled directory,
         every file is only returned once.
 
-        :returns: List of paths to the addon files.
+        :returns: List of resolved (absolute) paths to the addon files.
         """
         bundled_dir = Path(__file__).parent / "container"
 
@@ -122,12 +123,14 @@ class ContainerDefintion:
         build context as context. The image is tagged
         ``dev-isolator:<slug_of_the_current_path>``.
 
-        The merged Containerfile is written into a temporary copy of
-        the build context, so the original directory is not modified.
+        The merged Containerfile is written to a temporary file
+        outside the build context, so the original directory is
+        not modified.
 
-        When the global verbosity (see :func:`utils.set_verbosity`) is
-        at least ``Verbosity.INFO`` (e.g. ``--verbose``), the build
-        log is streamed to stdout as it arrives.
+        When the global verbosity (see :func:`utils.set_verbosity`)
+        is greater than ``Verbosity.INFO`` (i.e. ``Verbosity.DEBUG``,
+        for example ``--verbose --verbose``), the full
+        build log is printed to stdout after the build has finished.
 
         :raises RuntimeError: if the podman build fails.
         """
@@ -164,13 +167,12 @@ class ContainerDefintion:
         except podman.errors.APIError as e:
             raise RuntimeError(f"Podman API error while building {tag}: {e}")
 
-        if get_verbosity > Verbosity.DEBUG:
+        if get_verbosity() > Verbosity.INFO:
             for entry in build_logs:
                 if isinstance(entry, bytes):
-                    print(f"[build] {entry.decode(errors='replace').strip()}")
-                else:
-                    for stream in entry.get("stream", "").splitlines():
-                        print(f"[build] {stream}")
+                    entry = json.loads(entry.decode(errors='replace').strip())
+                for stream in entry.get("stream", "").splitlines():
+                    print(f"[build] {stream}")
 
         print(f"Built image {image.id} tagged {tag}")
         return image
@@ -240,7 +242,7 @@ class ContainerDefintion:
                   f"({interactive_shell}; detach with Ctrl-D or 'exit')")
             exit_code = subprocess.call(exec_cmd)
             print(f"Shell in {self.container_name()} exited "
-                  "(exit code: {exit_code})")
+                  f"(exit code: {exit_code})")
 
             # Shut the container down after the terminal session ends.
             try:
@@ -255,7 +257,8 @@ class ContainerDefintion:
         return exit_code
 
     def image_name(self) -> str:
-        """Return the image name ``dev-isolator:<slug_of_the_current_path>``."""
+        """Return the image name
+           ``dev-isolator:<slug_of_the_current_path>``."""
         return f"{IMAGE_PREFIX}:{self.current_path_slug()}"
 
     def container_name(self) -> str:

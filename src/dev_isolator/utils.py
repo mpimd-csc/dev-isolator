@@ -13,8 +13,8 @@ from enum import IntEnum
 
 
 class Verbosity(IntEnum):
-    """Enum-like verbosity levels used by :func:`set_verbosity`
-    and :func:`dprint`.
+    """Enum-like verbosity levels used by :func:`set_verbosity`,
+    :func:`get_verbosity` and :func:`dprint`.
 
     Being an :class:`enum.IntEnum`, members compare against plain
     integers (e.g. the ``--verbose`` repeat count) as usual:
@@ -40,6 +40,7 @@ def set_verbosity(level: Verbosity | int) -> None:
 
 
 def get_verbosity() -> int:
+    """Return the current global verbosity level."""
     global VERBOSITY
     return VERBOSITY
 
@@ -58,14 +59,16 @@ def dprint(level: Verbosity | int, *args, **kwargs) -> None:
 
 
 def config_path(pattern):
-    """Search for :param:`pattern` upwards from the current directory.
+    """Search for ``pattern`` upwards from the current directory.
 
-    Walks up the directory tree starting at the current working directory
-    until the home directory (inclusive) and returns the path of the first
-    ``pattern`` found in one of those directories.
+    Walks up the directory tree starting at the current working
+    directory until the home or the filesystem root directory
+    (inclusive) and returns the path of the first ``pattern`` found
+    in one of those directories.
 
-    Returns None when the home directory is reached and the pattern
-    was not found.
+    Returns None when the walk reaches the home directory (or the
+    filesystem root, for a working directory outside the home tree)
+    and the pattern was not found.
     """
     home = Path.home()
     directory = Path.cwd().resolve()

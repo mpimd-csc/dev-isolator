@@ -1,4 +1,4 @@
-""" My fancy Python CLI tool.
+""" dev-isolator - A concise podmand based development container
 
 Copyright (C) 2026 Martin Köhler
 
@@ -8,7 +8,6 @@ under certain conditions; see LICENSE for details.
 SPDX-License-Identifier: GPL-3.0-or-later
 """
 
-from .functions import demo_function
 from .main import main
 
-__all__ = ["main", "demo_function"]
+__all__ = ["main"]
