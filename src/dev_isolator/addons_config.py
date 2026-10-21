@@ -375,7 +375,7 @@ class AddonsConfiguration:
             for name in config["environment"]:
                 value = os.environ.get(name)
                 if value is None:
-                    dprint(Verbosity.INFO,
+                    dprint(Verbosity.TRACE,
                            f"Environment variable {name} requested by "
                            f"{config_file.name} is not set; skipping")
                     continue
@@ -386,8 +386,8 @@ class AddonsConfiguration:
                 container_path = resolve_env_references(container_path)
                 mode = resolve_env_references(mode)
                 if host is None or container_path is None or mode is None:
-                    dprint(Verbosity.INFO, f"Skipping {spec} due to missing"
-                                           " environment variables.")
+                    dprint(Verbosity.TRACE, f"Skipping {spec} due to missing"
+                                            " environment variables.")
                     continue
                 host = os.path.expanduser(os.path.expandvars(host))
                 container_path = os.path.expanduser(

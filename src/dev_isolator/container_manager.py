@@ -196,10 +196,59 @@ class ContainerDefintion:
         """
         return self.render_template(_host_user_template())
 
+    def _current_image_id(self, client, tag):
+        """Return the id of the image tagged ``tag``, or ``None``.
+
+        :param client: Connected :class:`podman.PodmanClient`.
+        :param tag: Name (tag) of the image to look up.
+        """
+        try:
+            return client.images.get(tag).id
+        except (podman.errors.NotFound, podman.errors.ImageNotFound):
+            dprint(Verbosity.INFO, f"No existing image {tag}")
+            return None
+
+    def _remove_superseded_image(self, client, tag, previous_id, new_id):
+        """Remove the previous image with ``tag``, if the build
+           replaced it.
+
+        When podman applies a build's tag to a new image, the previous
+        image loses the tag and remains as a dangling artifact. To
+        avoid this, it is removed (by id) after the build - but only
+        when the build actually produced a new image id.
+
+        :param client: Connected :class:`podman.PodmanClient`.
+        :param tag: Name (tag) of the image that was built.
+        :param previous_id: Id of the image tagged ``tag`` before the
+            build, or ``None`` when there was none.
+        :param new_id: Id of the image the build produced.
+        :raises RuntimeError: if podman refuses to remove the image.
+        """
+        if previous_id is None:
+            dprint(Verbosity.INFO, f"No previous image {tag} to remove")
+            return
+        if previous_id == new_id:
+            dprint(Verbosity.INFO, f"Image {tag} unchanged "
+                   f"({previous_id}); not removing")
+            return
+        dprint(Verbosity.INFO, f"Removing superseded image {tag} "
+               f"({previous_id})")
+        try:
+            client.images.remove(previous_id, force=True)
+            dprint(Verbosity.INFO, f"Removed image {tag}")
+        except podman.errors.APIError as e:
+            raise RuntimeError(f"Failed to remove image {tag}: {e}") from e
+
     def build_container(self, nocache=False):
         """Build the image defined by this container definition.
 
-        :raises RuntimeError: if the podman build fails.
+        If an image with the same tag (see :meth:`image_name`) existed
+        before, it is removed after the build - but only when the
+        build replaced it, i.e. its image id changed - so no old image
+        is left as a dangling artifact in podman.
+
+        :raises RuntimeError: if the podman build fails or the
+            superseded image cannot be removed.
         """
 
         tag = self.image_name()
@@ -207,6 +256,7 @@ class ContainerDefintion:
 
         try:
             with podman.PodmanClient() as client:
+                previous_id = self._current_image_id(client, tag)
                 for addon in self.addons.addon_files():
                     dprint(Verbosity.INFO, f"Appending addon: {addon}")
                 if get_verbosity() >= Verbosity.TRACE:
@@ -233,6 +283,8 @@ class ContainerDefintion:
                         pull=True,
                         nocache=nocache
                         )
+                    self._remove_superseded_image(
+                        client, tag, previous_id, image.id)
         except podman.errors.BuildError as e:
             raise RuntimeError(f"Failed to build image {tag}: {e}") from e
         except podman.errors.APIError as e:

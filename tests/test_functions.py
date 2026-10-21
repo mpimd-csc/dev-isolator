@@ -5,6 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 from pathlib import Path
 
+import podman.errors
 import pytest
 from dev_isolator.container_manager import ContainerDefintion, BUNDLE_DIR
 from dev_isolator.main import create_parser
@@ -207,8 +208,31 @@ class FakeImages:
 
     def __init__(self):
         self.built = None
+        # Existing podman images by tag; returned by ``get``.
+        self.existing = {}
+        # Image ids passed to ``remove``.
+        self.removed = []
+        # ("get", tag)/("remove", image_id)/("build", tag) events
+        # in the order they happened.
+        self.events = []
+
+    def get(self, name):
+        self.events.append(("get", name))
+        try:
+            return self.existing[name]
+        except KeyError:
+            raise podman.errors.NotFound(
+                f"No image with tag {name}") from None
+
+    def remove(self, image_id, force=False):
+        self.events.append(("remove", image_id))
+        self.removed.append((image_id, force))
+        for tag, image in list(self.existing.items()):
+            if image.id == image_id:
+                del self.existing[tag]
 
     def build(self, **kwargs):
+        self.events.append(("build", kwargs.get("tag")))
         self.built = kwargs
         dockerfile = Path(kwargs["dockerfile"])
         if dockerfile.exists():
@@ -306,6 +330,53 @@ class TestBuildTraceOutput:
         assert content.startswith("FROM ubuntu:26.04\n")
         assert "# --- appended from addon.mine ---" in content
         assert "RUN echo custom" in content
+
+    def test_superseded_image_is_removed_after_build(
+            self, project, patched_images, monkeypatch):
+        """When the build produces a new image id for the same tag,
+        the previous image is removed with ``force=True`` afterwards."""
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+
+        existing = FakeImage(id="sha256:old", tags=[project.image_name()])
+        patched_images.existing[project.image_name()] = existing
+
+        project.build_container()
+
+        assert patched_images.removed == [("sha256:old", True)]
+        # The lookup happens before and the removal after the build.
+        assert patched_images.events == [
+            ("get", project.image_name()),
+            ("build", project.image_name()),
+            ("remove", "sha256:old"),
+        ]
+
+    def test_unchanged_image_is_not_removed(
+            self, project, patched_images, monkeypatch):
+        """When the build returns the existing image id, nothing is
+        removed."""
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+
+        existing = FakeImage(id="sha256:abc123", tags=[project.image_name()])
+        patched_images.existing[project.image_name()] = existing
+
+        project.build_container()
+
+        assert patched_images.removed == []
+        assert ("remove", "sha256:abc123") not in patched_images.events
+
+    def test_build_without_existing_image_skips_removal(
+            self, project, patched_images, monkeypatch):
+        """When no image with the build's tag exists, nothing is
+        removed and the build proceeds."""
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+
+        project.build_container()
+
+        assert patched_images.removed == []
+        assert patched_images.built["tag"] == project.image_name()
 
 
 class TestIsDevisolatorImage:
