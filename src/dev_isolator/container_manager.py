@@ -430,6 +430,8 @@ class ContainerDefintion:
             try:
                 container.stop(timeout=0)
                 print(f"Stopped container {self.container_name()}")
+                container.remove()
+                print(f"Removed container {self.container_name()}")
             except podman.errors.NotFound:
                 # Container was removed elsewhere; nothing to shut down.
                 print(f"Container {self.container_name()} is already gone")
