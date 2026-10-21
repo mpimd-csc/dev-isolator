@@ -1,5 +1,29 @@
 """CLI entry point for dev-isolator.
 
+dev-isolator manages a per-project, podman based development
+environment.  For every project that contains a ``.devisolator``
+directory (holding a ``Containerfile`` and optional addon
+configuration) it builds an image named
+``dev-isolator-<slug_of_the_project_path>`` and runs commands inside a
+container created from it, with the project directory mounted at the
+same path.  This keeps build tools, caches and dependencies isolated
+from the host while the sources stay in place.
+
+The sub commands are:
+
+``build``
+    Build the image for the current project.
+``shell``
+    Open an interactive shell inside the container (the default when
+    no subcommand is given).
+``run <command> ...``
+    Run an arbitrary command inside the container.
+``opencode`` / ``claude``
+    Run the respective AI coding tool inside the container.
+``clean``
+    Remove the image of the current project (or, with ``--all``, every
+    dev-isolator image).
+
 Copyright (C) 2026 Martin Köhler
 
 This program comes with ABSOLUTELY NO WARRANTY.
@@ -10,6 +34,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 import argparse
 import sys
+from textwrap import dedent
 from .container_manager import ContainerDefintion
 from .utils import set_verbosity, config_path, Verbosity, dprint
 
@@ -17,10 +42,40 @@ DEFAULT_SHELL = "bash"
 
 
 def create_parser() -> argparse.ArgumentParser:
-    """Create the argument parser."""
+    """Create and configure the command line argument parser.
+
+    Defines the global options (only ``--verbose/-v`` so far) and one
+    subparser per sub command.  The ``opencode``, ``claude`` and
+    ``run`` parsers disable their own help handling so that unknown
+    arguments are passed through to the command inside the container.
+    """
+    description = """\
+        Manage an isolated, podman based development environment
+        for the current project.
+
+        Images are named dev-isolator-<slug_of_the_project_path> and
+        are built from the ``Containerfile`` found in the
+        ``.devisolator`` directory of the project or form a default one.
+        Commands started with dev-isolator run inside a container created
+        from this image, with the project directory mounted at its original
+        path, so tools and dependencies stay isolated from the host.
+        """
+    epilog = """\
+examples:
+  dev-isolator build              build the image of the current project
+  dev-isolator --nocache build    same, but without using the build cache
+  dev-isolator                    open an interactive shell in the container
+  dev-isolator run make test      run "make test" inside the container
+  dev-isolator opencode           run opencode inside the container
+  dev-isolator clean --all        remove every dev-isolator image
+
+The dev-isolator command can also be abbreviated by `di`
+        """
     parser = argparse.ArgumentParser(
         prog="dev-isolator",
-        description="Bla",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=dedent(description),
+        epilog=dedent(epilog),
     )
 
     subparsers = parser.add_subparsers(dest="command")
@@ -98,6 +153,12 @@ def create_parser() -> argparse.ArgumentParser:
 
 
 def shell(args) -> int:
+    """Handle the ``shell`` sub command.
+
+    Look up the container definition of the current project and start
+    an interactive shell (``args.shell``) inside its container.
+    Returns the exit status of the container, or 1 on error.
+    """
     config = config_path(".devisolator")
     context_dir = config.parent
     container_file = config / "Containerfile"
@@ -117,6 +178,12 @@ def shell(args) -> int:
 
 
 def build(args) -> int:
+    """Handle the ``build`` sub command.
+
+    Look up the container definition of the current project and build
+    its image.  Pass ``--nocache`` to podman when ``args.nocache`` is
+    set.  Returns 0 on success, or 1 on error.
+    """
     config = config_path(".devisolator")
     context_dir = config.parent
     container_file = config / "Containerfile"
@@ -142,6 +209,12 @@ def build(args) -> int:
 
 
 def clean(args) -> int:
+    """Handle the ``clean`` sub command.
+
+    Remove the image of the current project, or every dev-isolator
+    image when ``args.clean_all`` is set.  Returns 0 on success, or 1
+    on error.
+    """
     try:
         if args.clean_all:
             ContainerDefintion().clean_all_images()
@@ -154,6 +227,13 @@ def clean(args) -> int:
 
 
 def in_container_command(command, remainder) -> int:
+    """Run ``command`` with ``remainder`` as its arguments inside the
+    container of the current project.
+
+    Used by the ``opencode``, ``claude`` and ``run`` sub commands,
+    which pass extra arguments through without parsing them.  Returns
+    the exit status of the container, or 1 on error.
+    """
     config = config_path(".devisolator")
     context_dir = config.parent
     container_file = config / "Containerfile"
@@ -174,7 +254,13 @@ def in_container_command(command, remainder) -> int:
 
 
 def main() -> int:
-    """Main CLI entry point."""
+    """Main CLI entry point.
+
+    Parse the command line (keeping unrecognised arguments in
+    ``remainder``), apply the requested verbosity and dispatch to the
+    handler of the selected sub command.  Without an explicit
+    subcommand, ``shell`` is executed with the default shell.
+    """
     parser = create_parser()
     args, remainder = parser.parse_known_args()
 
