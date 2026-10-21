@@ -275,39 +275,19 @@ dev-isolator run make test  # or run a single command
 dev-isolator clean          # remove the image again
 ```
 
-## Contact and Contributing
-
-- Homepage: <https://gitlab.mpi-magdeburg.mpg.de/templates/dev-isolator>
-- Issues: <https://gitlab.mpi-magdeburg.mpg.de/templates/dev-isolator/-/work_items>
+## Contributing
 
 Contributions are welcome from everyone; please follow the guide in
 [CONTRIBUTING.md](CONTRIBUTING.md):
 
-1. Fork the repository and create a branch for your feature or bug fix.
-2. Make your changes, follow [PEP 8](https://peps.python.org/pep-0008/)
-   and add yourself to [CONTRIBUTORS.md](CONTRIBUTORS.md).
-3. Commit with a clear, descriptive message, push and open a merge
-   request describing your changes and any related issues.
-
-Note in particular:
-
-- By contributing, the copyright of your contribution is assigned to
-  the dev-isolator authors, and the authors reserve the right to
-  re-license the code-base (see [Licensing](#licensing)).
-- AI-generated contributions are accepted, but require a human review,
-  mentioned in the latest commit of the merge request. Contributions
-  that seem purely AI generated will be ignored.
-
 ## Licensing
+
+Copyright (C) 2026 Martin Köhler
 
 `dev-isolator` is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version (GPL-3.0-or-later).
 
-Copyright (C) 2026 Martin Köhler.
+See [LICENSE](LICENSE) for details.
 
-This program is distributed in the hope that it will be useful, but
-it comes with ABSOLUTELY NO WARRANTY; without even the implied
-warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See
-[LICENSE](LICENSE) for details.
