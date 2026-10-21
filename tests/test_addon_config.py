@@ -8,11 +8,9 @@ from pathlib import Path
 
 import pytest
 import yaml
-from dev_isolator.container_manager import (
-    ContainerDefintion,
-    parse_volume_spec,
-    read_addon_config,
-)
+from dev_isolator.addons_config import parse_volume_spec, \
+    read_addon_config, resolve_env_references
+from dev_isolator.container_manager import ContainerDefintion
 from dev_isolator.utils import Verbosity
 
 
@@ -122,6 +120,31 @@ class TestReadAddonConfig:
             read_addon_config(config_file)
 
 
+class TestResolveEnvReferences:
+    """Test resolving ENV[NAME] references in volume specs."""
+
+    def test_reference_is_replaced(self, monkeypatch):
+        monkeypatch.setenv("DEV_ISOLATOR_TEST_VAR", "/host/data")
+
+        assert resolve_env_references(
+            "ENV[DEV_ISOLATOR_TEST_VAR]:/container") \
+            == "/host/data:/container"
+
+    def test_multiple_references_are_replaced(self, monkeypatch):
+        monkeypatch.setenv("DEV_ISOLATOR_TEST_VAR", "value")
+
+        assert resolve_env_references(
+            "ENV[DEV_ISOLATOR_TEST_VAR]:/c:ENV[DEV_ISOLATOR_TEST_VAR]") \
+            == "value:/c:value"
+
+    def test_unset_reference_raises(self, monkeypatch):
+        monkeypatch.delenv("DEV_ISOLATOR_TEST_UNSET", raising=False)
+
+        with pytest.raises(RuntimeError,
+                           match="is not set"):
+            resolve_env_references("ENV[DEV_ISOLATOR_TEST_UNSET]:/c")
+
+
 class TestParseVolumeSpec:
     """Test splitting host:container[:mode] volume specs."""
 
@@ -156,8 +179,10 @@ class TestAddonRunSettings:
             "  - DEV_ISOLATOR_TEST_UNSET\n"
             "volumes:\n"
             "  - /host/data:/container/data:ro\n"
-            f"  - ${{HOME}}/dev-isolator-test:/home/dev/data\n")
+            f"  - ${{HOME}}/dev-isolator-test:/home/dev/data\n"
+            "  - ENV[DEV_ISOLATOR_TEST_HOST]:/env/data\n")
         monkeypatch.setenv("DEV_ISOLATOR_TEST_VAR", "test-value")
+        monkeypatch.setenv("DEV_ISOLATOR_TEST_HOST", "/env-host")
         return definition
 
     def test_environment_vars_are_taken_from_host(self, with_config):
@@ -168,15 +193,29 @@ class TestAddonRunSettings:
         assert environment == {"DEV_ISOLATOR_TEST_VAR": "test-value"}
 
     def test_volumes_are_expanded(self, with_config):
-        """~ and ${VAR} in the host path are expanded; the mode is
-        kept."""
+        """~ and ${VAR} in the host path are expanded, ENV[VAR]
+        references are resolved; the mode is kept."""
         _, volumes = with_config.addon_run_settings()
 
         assert volumes == {
             "/host/data": {"bind": "/container/data", "mode": "ro"},
             str(Path.home() / "dev-isolator-test"):
                 {"bind": "/home/dev/data", "mode": "rw"},
+            "/env-host": {"bind": "/env/data", "mode": "rw"},
         }
+
+    def test_unset_env_reference_raises(self, definition, tmp_path: Path,
+                                        monkeypatch):
+        """An ENV[VAR] reference to an unset variable raises an
+        error."""
+        config_dir = tmp_path / ".devisolator"
+        (config_dir / "config.mine.yaml").write_text(
+            "volumes:\n"
+            "  - ENV[DEV_ISOLATOR_TEST_UNSET]:/container\n")
+        monkeypatch.delenv("DEV_ISOLATOR_TEST_UNSET", raising=False)
+
+        with pytest.raises(RuntimeError, match="is not set"):
+            definition.addon_run_settings()
 
     def test_addons_without_config_contribute_nothing(
             self, definition):

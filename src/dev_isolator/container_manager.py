@@ -16,18 +16,23 @@ import tarfile
 import time
 import json
 from tempfile import NamedTemporaryFile
-import yaml
 import podman.errors
 from io import BytesIO
 from pathlib import Path
 from podman.api import create_tar, prepare_containerignore
+from .addons_config import (
+    DEV_ISOLATOR_DIR,
+    CONFIG_FILE_NAME,
+    ADDON_CONFIG_FILE_PREFIX,
+    ADDON_CONFIG_FILE_SUFFIX,
+    read_enabled_addons,
+    read_addon_config,
+    parse_volume_spec,
+    resolve_env_references,
+)
 from .utils import dprint, Verbosity, get_verbosity
 
 IMAGE_PREFIX = "dev-isolator"
-CONFIG_FILE_NAME = "config.yaml"
-ADDON_CONFIG_FILE_PREFIX = "config."
-ADDON_CONFIG_FILE_SUFFIX = ".yaml"
-DEV_ISOLATOR_DIR = ".devisolator"
 BUNDLE_DIR = "data"
 OCI_IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
 
@@ -45,114 +50,6 @@ def slugify_path(path: str | os.PathLike) -> str:
     """
     text = str(path)
     return re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
-
-
-def read_enabled_addons(addons_file: Path) -> set[str]:
-    """Return the addon names enabled in a config (``config.yaml``) file.
-
-    The file is expected to have the shape::
-
-        addons_enabled:
-          - opencode
-          - my-addon
-
-    :param addons_file: Path to the config file (``config.yaml``).
-    :returns: The set of enabled addon names (possibly empty).
-    :raises RuntimeError: if the file is not valid YAML, does not
-        contain a mapping, or the ``addons_enabled`` entry is not a
-        list.
-    """
-    try:
-        data = yaml.safe_load(addons_file.read_text(encoding="utf-8"))
-    except yaml.YAMLError as e:
-        raise RuntimeError(
-            f"Invalid addons file {addons_file}: {e}") from e
-    if data is None:
-        return set()
-    if not isinstance(data, dict):
-        raise RuntimeError(
-            f"Invalid addons file {addons_file}: "
-            "expected a mapping with an 'addons_enabled' key")
-    enabled = data.get("addons_enabled")
-    if enabled is None:
-        return set()
-    if not isinstance(enabled, list):
-        raise RuntimeError(
-            f"Invalid addons file {addons_file}: "
-            "'addons_enabled' must be a list of addon names")
-    return {str(name) for name in enabled}
-
-
-def read_addon_config(config_file: Path) -> dict:
-    """Return the ``environment`` and ``volumes`` entries of an
-    addon config file (``config.<addon_name>.yaml``).
-
-    The file is expected to have the shape::
-
-        environment:
-          - VAR1
-          - VAR2
-        volumes:
-          - path:/path/in/container
-          - path:/path/in/container:ro
-
-    Missing (or empty) sections are returned as empty lists.
-
-    :param config_file: Path to the addon config file.
-    :returns: A dict with the keys ``environment`` and ``volumes``,
-        each holding a list of strings.
-    :raises RuntimeError: if the file is not valid YAML, does not
-        contain a mapping, or one of the sections is not a list of
-        strings.
-    """
-    try:
-        data = yaml.safe_load(config_file.read_text(encoding="utf-8"))
-    except yaml.YAMLError as e:
-        raise RuntimeError(
-            f"Invalid addon config file {config_file}: {e}") from e
-    if data is None:
-        data = {}
-    if not isinstance(data, dict):
-        raise RuntimeError(
-            f"Invalid addon config file {config_file}: "
-            "expected a mapping with 'environment' and/or 'volumes' keys")
-
-    config = {"environment": [], "volumes": []}
-    for key in config:
-        entries = data.get(key)
-        if entries is None:
-            continue
-        if not isinstance(entries, list) \
-                or not all(isinstance(entry, str) for entry in entries):
-            raise RuntimeError(
-                f"Invalid addon config file {config_file}: "
-                f"'{key}' must be a list of strings")
-        config[key] = entries
-    return config
-
-
-def parse_volume_spec(spec: str) -> tuple[str, str, str]:
-    """Split a volume spec ``host:container[:mode]`` into its parts.
-
-    :returns: The tuple ``(host_path, container_path, mode)``; the
-        mode defaults to ``rw`` when the spec has no third part.
-    :raises RuntimeError: if the spec does not have a host and a
-        container path part.
-    """
-    parts = spec.split(":")
-    if len(parts) == 2:
-        host, container_path, mode = *parts, "rw"
-    elif len(parts) == 3:
-        host, container_path, mode = parts
-    else:
-        raise RuntimeError(
-            f"Invalid volume spec '{spec}': expected "
-            "'host_path:container_path[:mode]'")
-    if not host or not container_path:
-        raise RuntimeError(
-            f"Invalid volume spec '{spec}': "
-            "host and container path must be non-empty")
-    return host, container_path, mode
 
 
 class ContainerDefintion:
@@ -340,8 +237,10 @@ class ContainerDefintion:
         - ``environment`` names environment variables which are
           taken from the host environment (variables that are not
           set on the host are skipped with a message).
-        - ``volumes`` holds ``host:container[:mode]`` specs; ``~``
-          and ``${VAR}`` in the host path are expanded.
+        - ``volumes`` holds ``host:container[:mode]`` specs;
+          ``ENV[VAR]`` is resolved first (an unset variable is an
+          error), then ``~`` and ``${VAR}`` in the host path are
+          expanded.
 
         :returns: The tuple ``(environment, volumes)`` where
             ``environment`` maps variable names to their host values
@@ -371,8 +270,18 @@ class ContainerDefintion:
                 environment[name] = value
             for spec in config["volumes"]:
                 host, container_path, mode = parse_volume_spec(spec)
+                host = resolve_env_references(host)
+                container_path = resolve_env_references(container_path)
+                mode = resolve_env_references(mode)
+                if host is None or container_path is None or mode is None:
+                    dprint(Verbosity.INFO, f"Skipping {spec} due to missing"
+                                           " environment variables.")
+                    continue
                 host = os.path.expanduser(os.path.expandvars(host))
                 volumes[host] = {"bind": container_path, "mode": mode}
+        dprint(Verbosity.TRACE, f"Environment: {str(environment)}")
+        dprint(Verbosity.TRACE, f"Volumnes: {str(volumes)}")
+
         return environment, volumes
 
     def merged_container_file_content(self) -> str:

@@ -63,3 +63,50 @@ dev-isolator
 # or
 python -m dev_isolator
 ```
+
+### Project configuration
+
+The configuration of a containerized dev environment lives in the
+`.devisolator` directory of your project:
+
+- ``Containerfile``: The base image definition.
+- ``config.yaml``: Names the enabled addons:
+
+  ```yaml
+  addons_enabled:
+    - opencode
+  ```
+
+- ``addon.<name>``: Containerfile instructions appended for the
+  addon `<name>`.
+- ``config.<addon>.yaml``: Runtime settings an addon requests for
+  its container (see below).
+
+#### Addon configuration (`config.<addon>.yaml`)
+
+An addon config file has the shape
+
+```yaml
+environment:
+  - VAR1
+volumes:
+  - /host/path:/path/in/container
+  - ENV[DEV_DATA_DIR]/data:/data:ro
+```
+
+- ``environment`` lists the names of environment variables taken
+  from the host and passed into the container. Variables which are
+  not set on the host are skipped with a message.
+- ``volumes`` lists ``host:container[:mode]`` specs. The mode
+  defaults to ``rw`` when omitted (``ro`` mounts read-only).
+  Each spec may contain ``ENV[VAR]``, ``~`` and ``${VAR}``
+  references. They are expanded in the following order, before the
+  spec is parsed:
+
+  1. ``ENV[VAR]`` is replaced by the value of the environment
+     variable ``VAR``. This happens first, so the value may itself
+     contain the ``:`` separators of the spec. If the variable is
+     not set, an error is raised.
+  2. ``~`` is expanded to the home directory and ``${VAR}`` to the
+     value of ``VAR``. Unset variables expand to an empty string.
+

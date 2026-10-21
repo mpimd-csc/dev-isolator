@@ -1,4 +1,5 @@
 environment:
- - OPENCODE_CONFIG
+  - OPENCODE_CONFIG
 volumes:
- - ${HOME}/.config/opencode:/root/.config/opencode
+  - ${HOME}/.config/opencode:/root/.config/opencode:ro
+  - ENV[OPENCODE_CONFIG]:ENV[OPENCODE_CONFIG]
