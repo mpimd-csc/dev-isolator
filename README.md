@@ -1,7 +1,5 @@
 # dev-isolator
 
-## About
-
 `dev-isolator` is a command line tool that manages a per-project,
 [podman](https://podman.io/) based development environment.
 
