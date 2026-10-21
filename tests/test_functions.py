@@ -55,9 +55,10 @@ class TestMergedContainerfile:
         assert f"groupadd --gid {gid} {username}" in merged
         assert f"useradd --uid {uid} --gid {gid}" in merged
         assert f"USER {username}" in merged
-        # The USER instruction comes once, before the workdir block.
-        assert merged.count(f"USER {username}") == 1
-        assert merged.index(f"USER {username}") \
+        # Blocks may switch to the host user (for install steps) and
+        # back to root; the workdir block re-asserts the default user
+        # as the last such instruction.
+        assert merged.rindex(f"USER {username}") \
             < merged.rindex("WORKDIR /workspace")
 
     def test_enabled_context_addons_are_appended(self, tmp_path: Path):
