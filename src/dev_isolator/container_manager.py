@@ -19,7 +19,6 @@ from tempfile import NamedTemporaryFile
 import podman.errors
 from io import BytesIO
 from pathlib import Path
-from podman.api import create_tar, prepare_containerignore
 from .addons_config import (
     DEV_ISOLATOR_DIR,
     CONFIG_FILE_NAME,
@@ -238,9 +237,9 @@ class ContainerDefintion:
           taken from the host environment (variables that are not
           set on the host are skipped with a message).
         - ``volumes`` holds ``host:container[:mode]`` specs;
-          ``ENV[VAR]`` is resolved first (an unset variable is an
-          error), then ``~`` and ``${VAR}`` in the host path are
-          expanded.
+          ``ENV[VAR]`` references are resolved (a spec referencing an
+          unset variable is skipped), then ``~`` and ``${VAR}`` in
+          the host path are expanded.
 
         :returns: The tuple ``(environment, volumes)`` where
             ``environment`` maps variable names to their host values

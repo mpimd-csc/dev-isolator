@@ -113,26 +113,24 @@ def read_addon_config(config_file: Path) -> dict:
     return config
 
 
-def resolve_env_references(spec: str) -> str:
-    """Replace ``ENV[NAME]`` references in a volume spec with the
+def resolve_env_references(spec: str) -> str | None:
+    """Replace ``ENV[NAME]`` references in a volume spec part with the
     value of the environment variable ``NAME``.
 
-    This must happen before :func:`parse_volume_spec`, because the
-    value may itself contain the ``:`` separators of the spec.
-
-    :param spec: The volume spec; every ``ENV[NAME]`` occurrence
+    :param spec: The volume spec part; every ``ENV[NAME]`` occurrence
         (with ``NAME`` an identifier) is replaced in place.
-    :returns: The spec with all references resolved.
-    :raises RuntimeError: if a referenced environment variable is
-        not set.
+    :returns: The spec with all references resolved, or ``None``
+        when a referenced environment variable is not set (i.e.
+        could not be replaced).
     """
-    def replace(match: re.Match) -> str:
-        name = match.group(1)
-        value = os.environ.get(name)
-        if value is None:
-            return None
-        return value
-    return ENV_REFERENCE_PATTERN.sub(replace, spec)
+    # An unset variable turns a None replacement into an empty
+    # string, so unresolvable references must be detected before
+    # replacing them.
+    names = ENV_REFERENCE_PATTERN.findall(spec)
+    if any(os.environ.get(name) is None for name in names):
+        return None
+    return ENV_REFERENCE_PATTERN.sub(
+        lambda match: os.environ[match.group(1)], spec)
 
 
 def parse_volume_spec(spec: str) -> tuple[str, str, str]:

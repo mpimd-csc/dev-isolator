@@ -137,12 +137,18 @@ class TestResolveEnvReferences:
             "ENV[DEV_ISOLATOR_TEST_VAR]:/c:ENV[DEV_ISOLATOR_TEST_VAR]") \
             == "value:/c:value"
 
-    def test_unset_reference_raises(self, monkeypatch):
+    def test_unset_reference_returns_none(self, monkeypatch):
+        """A reference to an unset environment variable cannot be
+        replaced; the whole spec resolves to None."""
         monkeypatch.delenv("DEV_ISOLATOR_TEST_UNSET", raising=False)
 
-        with pytest.raises(RuntimeError,
-                           match="is not set"):
-            resolve_env_references("ENV[DEV_ISOLATOR_TEST_UNSET]:/c")
+        assert resolve_env_references(
+            "ENV[DEV_ISOLATOR_TEST_UNSET]:/c") is None
+        # One resolvable and one unresolvable reference do not mix.
+        monkeypatch.setenv("DEV_ISOLATOR_TEST_VAR", "value")
+        assert resolve_env_references(
+            "ENV[DEV_ISOLATOR_TEST_VAR]:ENV[DEV_ISOLATOR_TEST_UNSET]") \
+            is None
 
 
 class TestParseVolumeSpec:
@@ -204,18 +210,18 @@ class TestAddonRunSettings:
             "/env-host": {"bind": "/env/data", "mode": "rw"},
         }
 
-    def test_unset_env_reference_raises(self, definition, tmp_path: Path,
-                                        monkeypatch):
-        """An ENV[VAR] reference to an unset variable raises an
-        error."""
+    def test_unset_env_reference_skips_volume(self, definition, tmp_path: Path,
+                                              monkeypatch):
+        """A volume spec referencing an unset variable is skipped."""
         config_dir = tmp_path / ".devisolator"
         (config_dir / "config.mine.yaml").write_text(
             "volumes:\n"
             "  - ENV[DEV_ISOLATOR_TEST_UNSET]:/container\n")
         monkeypatch.delenv("DEV_ISOLATOR_TEST_UNSET", raising=False)
 
-        with pytest.raises(RuntimeError, match="is not set"):
-            definition.addon_run_settings()
+        _, volumes = definition.addon_run_settings()
+
+        assert volumes == {}
 
     def test_addons_without_config_contribute_nothing(
             self, definition):
@@ -237,6 +243,9 @@ class FakeCreatedContainer:
         pass
 
     def stop(self, timeout=0):
+        pass
+
+    def remove(self):
         pass
 
 
@@ -323,12 +332,13 @@ class TestRunContainerSettings:
         assert containers.created["environment"] == {
             "DEV_ISOLATOR_TEST_VAR": "test-value"}
         assert containers.created["volumes"] == {
-            "/host/data": {"bind": "/container/data", "mode": "ro"}}
+            "/host/data": {"bind": "/container/data", "mode": "ro"},
+            os.getcwd(): {"bind": "/workspace", "mode": "rw"}}
 
     def test_without_addon_config_no_settings_are_passed(
             self, tmp_path: Path, monkeypatch, creation_stub):
         """Without addon config files, containers.create() receives
-        empty environment and volumes."""
+        an empty environment and only the workspace volume."""
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "Containerfile").write_text("FROM ubuntu:26.04\n")
@@ -348,4 +358,5 @@ class TestRunContainerSettings:
         definition.run_container()
 
         assert containers.created["environment"] == {}
-        assert containers.created["volumes"] == {}
+        assert containers.created["volumes"] == {
+            os.getcwd(): {"bind": "/workspace", "mode": "rw"}}
