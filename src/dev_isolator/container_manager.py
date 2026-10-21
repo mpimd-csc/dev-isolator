@@ -23,7 +23,7 @@ from .utils import dprint, Verbosity, get_verbosity
 IMAGE_PREFIX = "dev-isolator"
 ADDONS_FILE_NAME = "addons.yaml"
 DEV_ISOLATOR_DIR = ".devisolator"
-BUNDLE_DIR = "container"
+BUNDLE_DIR = "data"
 
 # Sentinel marking a not-yet-computed cached value.
 _UNSET = object()
@@ -51,8 +51,8 @@ def read_enabled_addons(addons_file: Path) -> set[str]:
 
     :param addons_file: Path to the ``addons.yaml`` file.
     :returns: The set of enabled addon names (possibly empty).
-    :raises RuntimeError: if the file is not valid YAML or the
-        ``enabled`` entry is not a list.
+    :raises RuntimeError: if the file is not valid YAML, does not
+        contain a mapping, or the ``enabled`` entry is not a list.
     """
     try:
         data = yaml.safe_load(addons_file.read_text(encoding="utf-8"))
@@ -86,9 +86,9 @@ class ContainerDefintion:
 
     When the image is built, every ``addon.*`` file whose name is
     enabled in an ``addons.yaml`` file is appended to the used
-    ``Containerfile``. The enabled addons are the union of the list
-    in the ``addons.yaml`` shipped with dev-isolator and the one in
-    the project's ``.devisolator`` directory. Without any
+    ``Containerfile``. Only the first found ``addons.yaml`` is used:
+    the ``.devisolator/addons.yaml`` in the build context when it
+    exists, otherwise the one bundled with dev-isolator. Without any
     ``addons.yaml``, every ``addon.*`` file is appended.
     """
 
@@ -100,7 +100,7 @@ class ContainerDefintion:
             is used.
         :param context_dir: Optional path to the build context
             directory. When ``None``, the package's bundled
-            ``container`` directory is used.
+            ``data`` directory is used.
         :raises FileNotFoundError: if the resolved Containerfile does
             not exist.
         """
@@ -125,14 +125,15 @@ class ContainerDefintion:
         dprint(Verbosity.INFO, f"Context Dir:    {self.context_dir}")
         dprint(Verbosity.INFO, f"Bundle Dir:     {self.bundled_dir}")
 
-    def addons_config_file(self) -> Path:
-        """Return the active ``addons.yaml`` files controlling the addons.
+    def addons_config_file(self) -> Path | None:
+        """Return the active ``addons.yaml`` file controlling the addons.
 
-        The ``.devisolator/addons.yaml`` comes first, followed by the
-        bundled ``addons.yaml``.
+        The ``.devisolator/addons.yaml`` in the build context is used
+        when it exists; otherwise the bundled ``addons.yaml`` is used.
 
         :returns: The resolved (absolute) path of the active
-                  ``addons.yaml`` file.
+                  ``addons.yaml`` file, or ``None`` when neither
+                  exists.
         """
         for directory in (self.context_dir / DEV_ISOLATOR_DIR,
                           self.bundled_dir):
@@ -141,15 +142,15 @@ class ContainerDefintion:
             resolved = candidate.resolve()
             if resolved.is_file():
                 return resolved
-        return Path()
+        return None
 
     def enabled_addons(self) -> set[str] | None:
         """Return the names of the enabled addons.
 
-        The names from all ``addons.yaml`` files found by
-        :meth:`addons_config_files` are joined (union). Names
-        mentioned in the bundled *or* the project configuration
-        enable an addon.
+        Only the first ``addons.yaml`` file found by
+        :meth:`addons_config_file` is used: the
+        ``.devisolator/addons.yaml`` in the build context when it
+        exists, otherwise the bundled one.
 
         The result is computed once and cached for the lifetime of
         this instance, so repeated calls (e.g. from
@@ -167,9 +168,8 @@ class ContainerDefintion:
             if not addon_file:
                 enabled = None
             else:
-                enabled = set()
                 names = read_enabled_addons(addon_file)
-                enabled |= names
+                enabled = set(names)
                 dprint(Verbosity.INFO,
                        f"Addons enabled in {addon_file}: {sorted(names)}")
             self._enabled_addons = enabled
@@ -179,9 +179,10 @@ class ContainerDefintion:
         """Return all ``addon.*`` files appended to the Containerfile.
 
         The addons bundled with dev-isolator come first, followed by
-        any ``addon.*`` files in the build context itself (sorted by
-        file name). When the build context *is* the bundled directory,
-        every file is only returned once.
+        any ``addon.*`` files in the ``.devisolator`` directory
+        inside the build context (sorted by file name). Duplicates
+        are removed, so when the build context *is* the bundled
+        directory, every file is only returned once.
 
         Only addons whose name (the part after ``addon.``, e.g.
         ``opencode`` for ``addon.opencode``) is enabled via
@@ -231,7 +232,7 @@ class ContainerDefintion:
             text += addon.read_text(encoding="utf-8").rstrip("\n") + "\n"
         return text
 
-    def build_container(self):
+    def build_container(self, nocache=False):
         """Build the image defined by this container definition.
 
         Builds from the used Containerfile with all ``addon.*`` files
@@ -248,15 +249,24 @@ class ContainerDefintion:
         for example ``--verbose --verbose``), the full
         build log is printed to stdout after the build has finished.
 
+        At ``Verbosity.TRACE`` (``--verbose --verbose --verbose``),
+        the generated (merged) Containerfile is printed to stdout
+        before the build, with every line prefixed by
+        ``[Containerfile] ``.
+
         :raises RuntimeError: if the podman build fails.
         """
 
         tag = self.image_name()
+        merged_content = self.merged_container_file_content()
 
         try:
             with podman.PodmanClient() as client:
                 for addon in self.addon_files():
                     dprint(Verbosity.INFO, f"Appending addon: {addon}")
+                if get_verbosity() >= Verbosity.TRACE:
+                    for line in merged_content.splitlines():
+                        print(f"[Containerfile] {line}")
                 with NamedTemporaryFile(
                         "w",
                         encoding="utf-8",
@@ -264,8 +274,7 @@ class ContainerDefintion:
                         ) as merged_container_file:
                     dprint(Verbosity.INFO, "Created temporary Containerfile "
                            f"{merged_container_file.name}")
-                    merged_container_file.write(
-                            self.merged_container_file_content())
+                    merged_container_file.write(merged_content)
                     # Make sure the content reaches disk before podman
                     # reads the file during the build.
                     merged_container_file.flush()
@@ -276,7 +285,8 @@ class ContainerDefintion:
                         tag=tag,
                         rm=True,
                         forcerm=True,
-                        pull=True
+                        pull=True,
+                        nocache=nocache
                         )
         except podman.errors.BuildError as e:
             raise RuntimeError(f"Failed to build image {tag}: {e}") from e
@@ -296,9 +306,11 @@ class ContainerDefintion:
     def run_container(self, interactive_shell: str = "bash"):
         """Open an interactive terminal/shell inside the container.
 
-        Builds the image if needed, creates the container from it (or
-        reuses one created earlier), ensures it is running and then
-        attaches the local terminal to a shell inside the container.
+        Builds the image (see :meth:`build_container`), creates the
+        container from it (or reuses one created earlier), ensures
+        it is running and then attaches the local terminal to a
+        shell inside the container. The container is stopped again
+        after the shell session ends (unless it is already gone).
 
         :param interactive_shell: Shell to start inside the container.
         :returns: The exit code of the shell session.
@@ -312,7 +324,7 @@ class ContainerDefintion:
         implemented).
         """
 
-        self.build_container()
+        self.build_container( nocache=False)
 
         with podman.PodmanClient() as client:
             image = client.images.get(self.image_name())

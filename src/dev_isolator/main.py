@@ -33,9 +33,17 @@ def create_parser() -> argparse.ArgumentParser:
         help="Increase verbosity. Repeat for more details (-vv, -vvv).",
     )
 
-    subparsers.add_parser(
+    build_parser = subparsers.add_parser(
         "build",
         help="Build the current devisolator image")
+    build_parser.add_argument(
+            "--nocache",
+            "-n",
+            dest="nocache",
+            action="store_true",
+            help="Pass the --nocache option to podman build."
+            )
+
 
     run_parser = subparsers.add_parser(
         "run",
@@ -97,8 +105,13 @@ def build(args) -> int:
     else:
         definition = ContainerDefintion()
 
+    if not args.nocache:
+        nocache = False
+    else:
+        nocache = args.nocache
+
     try:
-        definition.build_container()
+        definition.build_container(nocache=nocache)
     except Exception as e:
         print(f"An error occured: {e}", file=sys.stderr)
         return 1
