@@ -295,6 +295,8 @@ class ContainerDefintion:
         for addon in self.addon_files():
             text += f"\n\n# --- appended from {addon.name} ---\n"
             text += addon.read_text(encoding="utf-8").rstrip("\n") + "\n"
+        text += "\n\n# --- workdir ---\n"
+        text += "WORKDIR /workspace\n"
         return text
 
     def build_container(self, nocache=False):
@@ -368,34 +370,38 @@ class ContainerDefintion:
 
         with podman.PodmanClient() as client:
             image = client.images.get(self.image_name())
-            try:
-                container = client.containers.get(self.container_name())
-                print(f"Reusing existing container {self.container_name()}")
-            except podman.errors.NotFound:
-                # Settings requested by addon config files
-                # (environment variables and volume mounts) are fixed
-                # when the container is created.
-                environment, volumes = self.addon_run_settings()
-                if environment:
-                    dprint(Verbosity.INFO,
-                           f"Passing environment variables "
-                           f"{sorted(environment)} to the container")
-                if volumes:
-                    dprint(Verbosity.INFO,
-                           f"Mounting volumes {sorted(volumes)} "
-                           "into the container")
-                container = client.containers.create(
-                    image,
-                    name=self.container_name(),
-                    # The image's entrypoint may exit immediately; keep
-                    # the container alive so shells can exec into it.
-                    entrypoint=["sleep", "infinity"],
-                    environment=environment,
-                    volumes=volumes,
-                    detach=True,
-                )
-                print(f"Created container {self.container_name()} "
-                      f"from {self.image_name()}")
+
+            environment: dict[str, str] = {}
+            volumes: dict[str, dict] = {}
+
+            addon_environment, addon_volumes = self.addon_run_settings()
+            environment |= addon_environment
+            volumes |= addon_volumes
+
+            # Bind the workspace
+            volumes[os.getcwd()] = {"bind": "/workspace", "mode": "rw"}
+
+            dprint(Verbosity.INFO,
+                   f"Passing environment variables "
+                   f"{sorted(environment)} to the container")
+            dprint(Verbosity.INFO,
+                   f"Mounting volumes {sorted(volumes)} "
+                   "into the container")
+
+            volumes[os.getcwd()] = {"bind": "/workspace", "mode": "rw"}
+
+            container = client.containers.create(
+                image,
+                name=self.container_name(),
+                # The image's entrypoint may exit immediately; keep
+                # the container alive so shells can exec into it.
+                entrypoint=["sleep", "infinity"],
+                environment=environment,
+                volumes=volumes,
+                detach=True,
+            )
+            print(f"Created container {self.container_name()} "
+                  f"from {self.image_name()}")
 
             container.reload()
             if container.status in ("created", "exited", "stopped"):
@@ -409,6 +415,8 @@ class ContainerDefintion:
                         break
                     time.sleep(0.1)
                 else:
+                    container.kill(9)
+                    container.remove()
                     raise RuntimeError(
                         f"Container {self.container_name()} did not reach "
                         f"'running' state (status: {container.status})")
