@@ -5,6 +5,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 from pathlib import Path
 
+import json
+
 import pytest
 from dev_isolator.container_manager import ContainerDefintion, BUNDLE_DIR
 from dev_isolator.main import create_parser
@@ -139,6 +141,10 @@ class TestMergedContainerfile:
         assert addons  # the bundled directory ships at least one addon
 
 
+IMAGE_ID = "abc123def4567890fedcba9876543210"
+"""Hex string mimicking a podman build log image id marker."""
+
+
 class FakeImage:
     """Minimal stand-in for a podman Image."""
 
@@ -147,15 +153,61 @@ class FakeImage:
         self.id = id
 
 
+def build_log_lines() -> list[bytes]:
+    """Return canned build log lines mimicking the podman stream."""
+    return [
+        json.dumps({"stream": "STEP 1/3: FROM ubuntu:26.04\n"}).encode(),
+        json.dumps({"stream": "STEP 2/3: RUN echo custom\n"}).encode(),
+        json.dumps({"stream": f"{IMAGE_ID}\n"}).encode(),
+        json.dumps({"stream": "COMMIT dev-isolator:test\n"}).encode(),
+    ]
+
+
+class FakeAPIResponse:
+    """Minimal stand-in for a podman APIResponse.
+
+    Replays canned build log lines via ``iter_lines()``.
+    """
+
+    def __init__(self, lines: list[bytes]):
+        self._lines = lines
+
+    def iter_lines(self):
+        yield from self._lines
+
+    def raise_for_status(self, not_found=None):
+        return None
+
+
+class FakeAPI:
+    """Minimal stand-in for the podman APIClient.
+
+    Records the ``post`` call for a build request.
+    """
+
+    def __init__(self, lines: list[bytes]):
+        self.lines = lines
+        self.build_post = None
+
+    def post(self, path, **kwargs):
+        # Copy streamed payload data, so it can be inspected after
+        # the (fake) request "finished".
+        data = kwargs.get("data")
+        if hasattr(data, "read") and not isinstance(data, bytes):
+            kwargs["data"] = data.read()
+        self.build_post = {"path": path, **kwargs}
+        return FakeAPIResponse(self.lines)
+
+
 class FakeImages:
     """Minimal stand-in for the podman images manager."""
 
     def __init__(self):
-        self.built = None
+        self.fetched = None
 
-    def build(self, **kwargs):
-        self.built = kwargs
-        return FakeImage(id="sha256:abc123"), []
+    def get(self, image_id):
+        self.fetched = image_id
+        return FakeImage(id=f"sha256:{image_id}")
 
 
 class FakeClient:
@@ -164,8 +216,9 @@ class FakeClient:
     Supports the ``with`` usage in ``build_container``.
     """
 
-    def __init__(self, images):
+    def __init__(self, images, api):
         self.images = images
+        self.api = api
 
     def __enter__(self):
         return self
@@ -188,14 +241,24 @@ class TestBuildTraceOutput:
         (config_dir / "addons.yaml").write_text("enabled:\n  - mine\n")
         return ContainerDefintion(container_file, tmp_path)
 
-    def test_trace_prints_generated_containerfile(
-            self, project, monkeypatch, capsys):
-        """At Verbosity.TRACE the generated Containerfile is printed
-        with a "[Containerfile] " line prefix."""
+    @pytest.fixture
+    def api(self):
+        """A fake API client replaying a successful build."""
+        return FakeAPI(build_log_lines())
+
+    @pytest.fixture
+    def patched_client(self, monkeypatch, api):
+        """Patch PodmanClient with a fake returning ``api``."""
         images = FakeImages()
         monkeypatch.setattr(
             "dev_isolator.container_manager.podman.PodmanClient",
-            lambda: FakeClient(images))
+            lambda: FakeClient(images, api))
+        return images
+
+    def test_trace_prints_generated_containerfile(
+            self, project, patched_client, api, monkeypatch, capsys):
+        """At Verbosity.TRACE the generated Containerfile is printed
+        with a "[Containerfile] " line prefix."""
         monkeypatch.setattr(
             "dev_isolator.utils.VERBOSITY", Verbosity.TRACE)
 
@@ -211,12 +274,8 @@ class TestBuildTraceOutput:
         assert "RUN echo custom" in plain
 
     def test_info_does_not_print_generated_containerfile(
-            self, project, monkeypatch, capsys):
+            self, project, patched_client, api, monkeypatch, capsys):
         """Below Verbosity.TRACE no "[Containerfile]" lines appear."""
-        images = FakeImages()
-        monkeypatch.setattr(
-            "dev_isolator.container_manager.podman.PodmanClient",
-            lambda: FakeClient(images))
         monkeypatch.setattr(
             "dev_isolator.utils.VERBOSITY", Verbosity.INFO)
 
@@ -224,6 +283,64 @@ class TestBuildTraceOutput:
         output = capsys.readouterr().out
 
         assert "[Containerfile]" not in output
+
+    def test_info_streams_build_output(
+            self, project, patched_client, api, monkeypatch, capsys):
+        """At Verbosity.INFO the build log is streamed live, every
+        line prefixed by "[build] "."""
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.INFO)
+
+        project.build_container()
+        output = capsys.readouterr().out
+
+        lines = [line for line in output.splitlines()
+                 if line.startswith("[build] ")]
+        assert lines, "no [build] lines printed"
+        plain = [line.removeprefix("[build] ") for line in lines]
+        assert plain[0] == "STEP 1/3: FROM ubuntu:26.04"
+        assert plain[1] == "STEP 2/3: RUN echo custom"
+        # The image id marker and the last log line are streamed, too.
+        assert IMAGE_ID in plain
+        assert plain[-1] == "COMMIT dev-isolator:test"
+
+    def test_error_does_not_stream_build_output(
+            self, project, patched_client, api, monkeypatch, capsys):
+        """Below Verbosity.INFO no "[build]" lines appear."""
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+
+        project.build_container()
+        output = capsys.readouterr().out
+
+        assert "[build]" not in output
+
+    def test_build_requests_streamed_tarball(
+            self, project, patched_client, api, monkeypatch, capsys):
+        """The build request streams a context tarball holding the
+        merged Containerfile and matches the used tag."""
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+
+        project.build_container()
+
+        assert api.build_post["path"] == "/build"
+        assert api.build_post["stream"] is True
+        params = api.build_post["params"]
+        assert params["dockerfile"] == "Containerfile"
+        assert params["t"] == project.image_name()
+        assert params["nocache"] is False
+
+        # The streamed payload is a tar with the merged Containerfile.
+        import io
+        import tarfile
+        with tarfile.open(fileobj=io.BytesIO(api.build_post["data"]),
+                          mode="r:") as tar:
+            member = tar.extractfile("Containerfile")
+            content = member.read().decode("utf-8")
+        assert content.startswith("FROM ubuntu:26.04\n")
+        assert "# --- appended from addon.mine ---" in content
+        assert "RUN echo custom" in content
 
 
 class TestIsDevisolatorImage:

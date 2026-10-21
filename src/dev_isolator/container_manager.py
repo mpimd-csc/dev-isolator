@@ -12,21 +12,26 @@ import os
 import re
 import subprocess
 import sys
+import tarfile
 import time
 import json
+from tempfile import NamedTemporaryFile
 import yaml
 import podman.errors
-from tempfile import NamedTemporaryFile
+from io import BytesIO
 from pathlib import Path
+from podman.api import create_tar, prepare_containerignore
 from .utils import dprint, Verbosity, get_verbosity
 
 IMAGE_PREFIX = "dev-isolator"
-ADDONS_FILE_NAME = "addons.yaml"
+CONFIG_FILE_NAME = "config.yaml"
 DEV_ISOLATOR_DIR = ".devisolator"
 BUNDLE_DIR = "data"
+OCI_IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
 
 # Sentinel marking a not-yet-computed cached value.
 _UNSET = object()
+
 
 def slugify_path(path: str | os.PathLike) -> str:
     """Return a slug (e.g. ``my-project``) suitable
@@ -65,7 +70,7 @@ def read_enabled_addons(addons_file: Path) -> set[str]:
         raise RuntimeError(
             f"Invalid addons file {addons_file}: "
             "expected a mapping with an 'enabled' key")
-    enabled = data.get("enabled")
+    enabled = data.get("addons_enabled")
     if enabled is None:
         return set()
     if not isinstance(enabled, list):
@@ -125,7 +130,7 @@ class ContainerDefintion:
         dprint(Verbosity.INFO, f"Context Dir:    {self.context_dir}")
         dprint(Verbosity.INFO, f"Bundle Dir:     {self.bundled_dir}")
 
-    def addons_config_file(self) -> Path | None:
+    def config_file(self) -> Path | None:
         """Return the active ``addons.yaml`` file controlling the addons.
 
         The ``.devisolator/addons.yaml`` in the build context is used
@@ -137,7 +142,7 @@ class ContainerDefintion:
         """
         for directory in (self.context_dir / DEV_ISOLATOR_DIR,
                           self.bundled_dir):
-            candidate = directory / ADDONS_FILE_NAME
+            candidate = directory / CONFIG_FILE_NAME
             dprint(Verbosity.TRACE, f"Try addon file {candidate}")
             resolved = candidate.resolve()
             if resolved.is_file():
@@ -148,7 +153,7 @@ class ContainerDefintion:
         """Return the names of the enabled addons.
 
         Only the first ``addons.yaml`` file found by
-        :meth:`addons_config_file` is used: the
+        :meth:`config_file` is used: the
         ``.devisolator/addons.yaml`` in the build context when it
         exists, otherwise the bundled one.
 
@@ -164,7 +169,7 @@ class ContainerDefintion:
         :raises RuntimeError: if an ``addons.yaml`` file is invalid.
         """
         if self._enabled_addons is _UNSET:
-            addon_file = self.addons_config_file()
+            addon_file = self.config_file()
             if not addon_file:
                 enabled = None
             else:
@@ -235,25 +240,6 @@ class ContainerDefintion:
     def build_container(self, nocache=False):
         """Build the image defined by this container definition.
 
-        Builds from the used Containerfile with all ``addon.*`` files
-        appended (see :meth:`merged_container_file_content`) and the
-        build context as context. The image is tagged
-        ``dev-isolator:<slug_of_the_current_path>``.
-
-        The merged Containerfile is written to a temporary file
-        outside the build context, so the original directory is
-        not modified.
-
-        When the global verbosity (see :func:`utils.set_verbosity`)
-        is greater than ``Verbosity.INFO`` (i.e. ``Verbosity.DEBUG``,
-        for example ``--verbose --verbose``), the full
-        build log is printed to stdout after the build has finished.
-
-        At ``Verbosity.TRACE`` (``--verbose --verbose --verbose``),
-        the generated (merged) Containerfile is printed to stdout
-        before the build, with every line prefixed by
-        ``[Containerfile] ``.
-
         :raises RuntimeError: if the podman build fails.
         """
 
@@ -291,14 +277,8 @@ class ContainerDefintion:
         except podman.errors.BuildError as e:
             raise RuntimeError(f"Failed to build image {tag}: {e}") from e
         except podman.errors.APIError as e:
-            raise RuntimeError(f"Podman API error while building {tag}: {e}")
-
-        if get_verbosity() > Verbosity.INFO:
-            for entry in build_logs:
-                if isinstance(entry, bytes):
-                    entry = json.loads(entry.decode(errors='replace').strip())
-                for stream in entry.get("stream", "").splitlines():
-                    print(f"[build] {stream}")
+            raise RuntimeError(f"Podman API error while building {tag}: {e}") \
+                from e
 
         print(f"Built image {image.id} tagged {tag}")
         return image
@@ -324,7 +304,7 @@ class ContainerDefintion:
         implemented).
         """
 
-        self.build_container( nocache=False)
+        self.build_container(nocache=False)
 
         with podman.PodmanClient() as client:
             image = client.images.get(self.image_name())
