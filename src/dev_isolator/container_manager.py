@@ -25,6 +25,8 @@ from .utils import dprint, Verbosity, get_verbosity
 
 IMAGE_PREFIX = "dev-isolator"
 CONFIG_FILE_NAME = "config.yaml"
+ADDON_CONFIG_FILE_PREFIX = "config."
+ADDON_CONFIG_FILE_SUFFIX = ".yaml"
 DEV_ISOLATOR_DIR = ".devisolator"
 BUNDLE_DIR = "data"
 OCI_IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
@@ -81,6 +83,78 @@ def read_enabled_addons(addons_file: Path) -> set[str]:
     return {str(name) for name in enabled}
 
 
+def read_addon_config(config_file: Path) -> dict:
+    """Return the ``environment`` and ``volumes`` entries of an
+    addon config file (``config.<addon_name>.yaml``).
+
+    The file is expected to have the shape::
+
+        environment:
+          - VAR1
+          - VAR2
+        volumes:
+          - path:/path/in/container
+          - path:/path/in/container:ro
+
+    Missing (or empty) sections are returned as empty lists.
+
+    :param config_file: Path to the addon config file.
+    :returns: A dict with the keys ``environment`` and ``volumes``,
+        each holding a list of strings.
+    :raises RuntimeError: if the file is not valid YAML, does not
+        contain a mapping, or one of the sections is not a list of
+        strings.
+    """
+    try:
+        data = yaml.safe_load(config_file.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        raise RuntimeError(
+            f"Invalid addon config file {config_file}: {e}") from e
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        raise RuntimeError(
+            f"Invalid addon config file {config_file}: "
+            "expected a mapping with 'environment' and/or 'volumes' keys")
+
+    config = {"environment": [], "volumes": []}
+    for key in config:
+        entries = data.get(key)
+        if entries is None:
+            continue
+        if not isinstance(entries, list) \
+                or not all(isinstance(entry, str) for entry in entries):
+            raise RuntimeError(
+                f"Invalid addon config file {config_file}: "
+                f"'{key}' must be a list of strings")
+        config[key] = entries
+    return config
+
+
+def parse_volume_spec(spec: str) -> tuple[str, str, str]:
+    """Split a volume spec ``host:container[:mode]`` into its parts.
+
+    :returns: The tuple ``(host_path, container_path, mode)``; the
+        mode defaults to ``rw`` when the spec has no third part.
+    :raises RuntimeError: if the spec does not have a host and a
+        container path part.
+    """
+    parts = spec.split(":")
+    if len(parts) == 2:
+        host, container_path, mode = *parts, "rw"
+    elif len(parts) == 3:
+        host, container_path, mode = parts
+    else:
+        raise RuntimeError(
+            f"Invalid volume spec '{spec}': expected "
+            "'host_path:container_path[:mode]'")
+    if not host or not container_path:
+        raise RuntimeError(
+            f"Invalid volume spec '{spec}': "
+            "host and container path must be non-empty")
+    return host, container_path, mode
+
+
 class ContainerDefintion:
     """Define, build and run the dev-isolator container for a project.
 
@@ -96,6 +170,12 @@ class ContainerDefintion:
     the ``.devisolator/config.yaml`` in the build context when it
     exists, otherwise the one bundled with dev-isolator. Without any
     ``config.yaml``, every ``addon.*`` file is appended.
+
+    When a container is run, each enabled addon may additionally
+    contribute environment variables and volume mounts through a
+    ``config.<addon_name>.yaml`` file (see
+    :meth:`addon_config_file`). Those are passed to the container
+    when it is created (see :meth:`addon_run_settings`).
     """
 
     def __init__(self, container_file=None, context_dir=None):
@@ -225,6 +305,76 @@ class ContainerDefintion:
             self._addon_files = addons
         return list(self._addon_files)
 
+    def addon_config_file(self, addon_name: str) -> Path | None:
+        """Return the config file (``config.<addon_name>.yaml``) of
+        an addon.
+
+        The ``.devisolator/config.<addon_name>.yaml`` in the build
+        context is used when it exists; otherwise the bundled
+        ``config.<addon_name>.yaml`` is used. Like
+        :meth:`config_file`, the first found file wins.
+
+        :param addon_name: Name of the addon (the part after
+            ``addon.`` in the addon file name).
+        :returns: The resolved (absolute) path of the addon's config
+            file, or ``None`` when neither exists.
+        """
+        file_name = (f"{ADDON_CONFIG_FILE_PREFIX}{addon_name}"
+                     f"{ADDON_CONFIG_FILE_SUFFIX}")
+        for directory in (self.context_dir / DEV_ISOLATOR_DIR,
+                          self.bundled_dir):
+            candidate = directory / file_name
+            dprint(Verbosity.TRACE, f"Try addon config file {candidate}")
+            resolved = candidate.resolve()
+            if resolved.is_file():
+                return resolved
+        return None
+
+    def addon_run_settings(self) -> tuple[dict[str, str], dict[str, dict]]:
+        """Return the environment variables and volume mounts
+        requested by the enabled addons' config files.
+
+        Every enabled addon with a ``config.<addon_name>.yaml`` file
+        (see :meth:`addon_config_file`) contributes its entries:
+
+        - ``environment`` names environment variables which are
+          taken from the host environment (variables that are not
+          set on the host are skipped with a message).
+        - ``volumes`` holds ``host:container[:mode]`` specs; ``~``
+          and ``${VAR}`` in the host path are expanded.
+
+        :returns: The tuple ``(environment, volumes)`` where
+            ``environment`` maps variable names to their host values
+            and ``volumes`` maps expanded host paths to
+            ``{"bind": container_path, "mode": mode}`` dicts, in the
+            shape expected by the podman bindings'
+            ``containers.create()``.
+        :raises RuntimeError: if an addon config file is invalid.
+        """
+        environment: dict[str, str] = {}
+        volumes: dict[str, dict] = {}
+        for addon in self.addon_files():
+            addon_name = addon.name.removeprefix("addon.")
+            config_file = self.addon_config_file(addon_name)
+            if not config_file:
+                continue
+            config = read_addon_config(config_file)
+            dprint(Verbosity.INFO,
+                   f"Addon config for {addon_name}: {config_file}")
+            for name in config["environment"]:
+                value = os.environ.get(name)
+                if value is None:
+                    dprint(Verbosity.INFO,
+                           f"Environment variable {name} requested by "
+                           f"{config_file.name} is not set; skipping")
+                    continue
+                environment[name] = value
+            for spec in config["volumes"]:
+                host, container_path, mode = parse_volume_spec(spec)
+                host = os.path.expanduser(os.path.expandvars(host))
+                volumes[host] = {"bind": container_path, "mode": mode}
+        return environment, volumes
+
     def merged_container_file_content(self) -> str:
         """Return the used Containerfile with all addons appended.
 
@@ -313,12 +463,26 @@ class ContainerDefintion:
                 container = client.containers.get(self.container_name())
                 print(f"Reusing existing container {self.container_name()}")
             except podman.errors.NotFound:
+                # Settings requested by addon config files
+                # (environment variables and volume mounts) are fixed
+                # when the container is created.
+                environment, volumes = self.addon_run_settings()
+                if environment:
+                    dprint(Verbosity.INFO,
+                           f"Passing environment variables "
+                           f"{sorted(environment)} to the container")
+                if volumes:
+                    dprint(Verbosity.INFO,
+                           f"Mounting volumes {sorted(volumes)} "
+                           "into the container")
                 container = client.containers.create(
                     image,
                     name=self.container_name(),
                     # The image's entrypoint may exit immediately; keep
                     # the container alive so shells can exec into it.
                     entrypoint=["sleep", "infinity"],
+                    environment=environment,
+                    volumes=volumes,
                     detach=True,
                 )
                 print(f"Created container {self.container_name()} "
