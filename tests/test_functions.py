@@ -24,11 +24,11 @@ class TestMergedContainerfile:
         merged = definition.merged_container_file_content()
 
         assert merged.startswith("FROM ubuntu:26.04\n")
-        for addon in definition.addon_files():
+        for addon in definition.addons.addon_files():
             assert addon.name in merged
         # The bundled opencode addon is enabled in the bundled
         # addons.yaml and part of the package.
-        assert any(a.name == "addon.opencode" for a in definition.addon_files())
+        assert any(a.name == "addon.opencode" for a in definition.addons.addon_files())
         assert "opencode" in merged
 
     def test_enabled_context_addons_are_appended(self, tmp_path: Path):
@@ -44,7 +44,7 @@ class TestMergedContainerfile:
         definition = ContainerDefintion(container_file, tmp_path)
         merged = definition.merged_container_file_content()
 
-        names = [a.name for a in definition.addon_files()]
+        names = [a.name for a in definition.addons.addon_files()]
         assert "addon.mine" in names
         assert names.index("addon.mine") == len(names) - 1
         assert "RUN echo custom" in merged
@@ -61,7 +61,7 @@ class TestMergedContainerfile:
         definition = ContainerDefintion(container_file, tmp_path)
         merged = definition.merged_container_file_content()
 
-        names = [a.name for a in definition.addon_files()]
+        names = [a.name for a in definition.addons.addon_files()]
         assert "addon.mine" not in names
         assert "RUN echo custom" not in merged
 
@@ -76,13 +76,13 @@ class TestMergedContainerfile:
         (config_dir / "config.yaml").write_text("addons_enabled:\n  - mine\n")
 
         definition = ContainerDefintion(container_file, tmp_path)
-        enabled = definition.enabled_addons()
+        enabled = definition.addons.enabled_addons()
 
         # Only the project config is honored; the bundled list is
         # ignored entirely.
         assert enabled == {"mine"}
-        assert definition.config_file().name == "config.yaml"
-        names = [a.name for a in definition.addon_files()]
+        assert definition.addons.config_file().name == "config.yaml"
+        names = [a.name for a in definition.addons.addon_files()]
         assert "addon.mine" in names
         assert "addon.opencode" not in names
 
@@ -96,11 +96,11 @@ class TestMergedContainerfile:
 
         definition = ContainerDefintion(container_file, tmp_path)
 
-        assert definition.config_file() \
+        assert definition.addons.config_file() \
             == (Path(__import__("dev_isolator.container_manager",
                                 fromlist=["__file__"]).__file__).parent
                 / BUNDLE_DIR / "config.yaml").resolve()
-        assert definition.enabled_addons() == {"opencode", "claude"}
+        assert definition.addons.enabled_addons() == {"opencode", "claude"}
 
     def test_no_config_yaml_enables_everything(self, tmp_path: Path,
                                                monkeypatch):
@@ -120,9 +120,9 @@ class TestMergedContainerfile:
 
         definition = ContainerDefintion(container_file, tmp_path)
 
-        assert not definition.config_file()
-        assert definition.enabled_addons() is None
-        names = [a.name for a in definition.addon_files()]
+        assert not definition.addons.config_file()
+        assert definition.addons.enabled_addons() is None
+        names = [a.name for a in definition.addons.addon_files()]
         assert "addon.mine" in names
 
     def test_no_duplicate_addons(self, tmp_path: Path):
@@ -133,7 +133,7 @@ class TestMergedContainerfile:
             / BUNDLE_DIR
 
         definition = ContainerDefintion(bundled / "Containerfile", bundled)
-        addons = definition.addon_files()
+        addons = definition.addons.addon_files()
 
         assert len(addons) == len({a for a in addons})
         assert addons  # the bundled directory ships at least one addon

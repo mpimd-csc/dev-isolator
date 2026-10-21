@@ -22,11 +22,17 @@ from pathlib import Path
 
 import yaml
 
+from .utils import Verbosity, dprint
+
 ENV_REFERENCE_PATTERN = re.compile(r"ENV\[(\w+)\]")
 DEV_ISOLATOR_DIR = ".devisolator"
 CONFIG_FILE_NAME = "config.yaml"
 ADDON_CONFIG_FILE_PREFIX = "config."
 ADDON_CONFIG_FILE_SUFFIX = ".yaml"
+BUNDLE_DIR = "data"
+
+# Sentinel marking a not-yet-computed cached value.
+_UNSET = object()
 
 
 def read_enabled_addons(addons_file: Path) -> set[str]:
@@ -155,3 +161,220 @@ def parse_volume_spec(spec: str) -> tuple[str, str, str]:
             f"Invalid volume spec '{spec}': "
             "host and container path must be non-empty")
     return host, container_path, mode
+
+
+class AddonsConfiguration:
+    """Locate and read the configuration files controlling the addons.
+
+    All configuration management lives here: finding the active
+    ``config.yaml`` (see :meth:`config_file`), the ``addon.*`` files
+    to append to the Containerfile (see :meth:`addon_files`) and the
+    per-addon ``config.<addon_name>.yaml`` files with the environment
+    variables and volumes of every addon (see
+    :meth:`addon_run_settings`).
+
+    The ``.devisolator`` directory inside the build context takes
+    precedence over the directory bundled with dev-isolator: the
+    first configuration file found is used and the bundled list is
+    ignored entirely. Without any configuration file, every
+    ``addon.*`` file is used.
+
+    Computed results are cached for the lifetime of the instance, so
+    repeated calls (e.g. during a build) evaluate each configuration
+    file only once.
+    """
+
+    def __init__(self, context_dir=None, bundled_dir=None):
+        """Set up the configuration for a build context.
+
+        :param context_dir: Path to the build context directory.
+            When ``None``, the bundled directory is used.
+        :param bundled_dir: Optional path to the directory bundled
+            with dev-isolator; only used for testing. When ``None``,
+            the package's bundled ``data`` directory is used.
+        """
+        if context_dir:
+            self.context_dir = Path(context_dir)
+        else:
+            self.context_dir = Path(__file__).parent / BUNDLE_DIR
+        if bundled_dir:
+            self.bundled_dir = Path(bundled_dir)
+        else:
+            self.bundled_dir = Path(__file__).parent / BUNDLE_DIR
+        self._enabled_addons = _UNSET
+        self._addon_files = _UNSET
+
+    def config_file(self) -> Path | None:
+        """Return the active ``config.yaml`` file controlling the addons.
+
+        The ``.devisolator/config.yaml`` in the build context is used
+        when it exists; otherwise the bundled ``config.yaml`` is used.
+
+        :returns: The resolved (absolute) path of the active
+                  ``config.yaml`` file, or ``None`` when neither
+                  exists.
+        """
+        for directory in (self.context_dir / DEV_ISOLATOR_DIR,
+                          self.bundled_dir):
+            candidate = directory / CONFIG_FILE_NAME
+            dprint(Verbosity.TRACE, f"Try addon file {candidate}")
+            resolved = candidate.resolve()
+            if resolved.is_file():
+                return resolved
+        return None
+
+    def enabled_addons(self) -> set[str] | None:
+        """Return the names of the enabled addons.
+
+        Only the first ``config.yaml`` file found by
+        :meth:`config_file` is used: the
+        ``.devisolator/config.yaml`` in the build context when it
+        exists, otherwise the bundled one.
+
+        The result is computed once and cached for the lifetime of
+        this instance, so repeated calls (e.g. from
+        :meth:`addon_files` during a build) do not print the addon
+        managing messages again.
+
+        :returns: The set of enabled addon names, or ``None`` when
+            no ``config.yaml`` file exists at all (in which case
+            every ``addon.*`` file is used).
+        :raises RuntimeError: if a ``config.yaml`` file is invalid.
+        """
+        if self._enabled_addons is _UNSET:
+            addon_file = self.config_file()
+            if not addon_file:
+                enabled = None
+            else:
+                names = read_enabled_addons(addon_file)
+                enabled = set(names)
+                dprint(Verbosity.INFO,
+                       f"Addons enabled in {addon_file}: {sorted(names)}")
+            self._enabled_addons = enabled
+        return self._enabled_addons
+
+    def addon_files(self):
+        """Return all ``addon.*`` files appended to the Containerfile.
+
+        The addons bundled with dev-isolator come first, followed by
+        any ``addon.*`` files in the ``.devisolator`` directory
+        inside the build context (sorted by file name). Duplicates
+        are removed, so when the build context *is* the bundled
+        directory, every file is only returned once.
+
+        Only addons whose name (the part after ``addon.``, e.g.
+        ``opencode`` for ``addon.opencode``) is enabled via
+        :meth:`enabled_addons` are returned. Without any
+        ``config.yaml`` file, every ``addon.*`` file is returned.
+
+        Like :meth:`enabled_addons`, the result is computed once and
+        cached for the lifetime of this instance, so the addon
+        managing messages are only printed once per build.
+
+        :returns: List of resolved (absolute) paths to the addon files.
+        """
+        if self._addon_files is _UNSET:
+            enabled = self.enabled_addons()
+
+            addons = []
+            seen = set()
+            for directory in (self.bundled_dir,
+                              self.context_dir / DEV_ISOLATOR_DIR):
+                if not directory.is_dir():
+                    continue
+                for addon in sorted(directory.glob("addon.*")):
+                    if not addon.is_file():
+                        continue
+                    name = addon.name.removeprefix("addon.")
+                    if enabled is not None and name not in enabled:
+                        dprint(Verbosity.INFO,
+                               f"Skipping disabled addon: {addon.name}")
+                        continue
+                    resolved = addon.resolve()
+                    if resolved not in seen:
+                        seen.add(resolved)
+                        addons.append(resolved)
+            self._addon_files = addons
+        return list(self._addon_files)
+
+    def addon_config_file(self, addon_name: str) -> Path | None:
+        """Return the config file (``config.<addon_name>.yaml``) of
+        an addon.
+
+        The ``.devisolator/config.<addon_name>.yaml`` in the build
+        context is used when it exists; otherwise the bundled
+        ``config.<addon_name>.yaml`` is used. Like
+        :meth:`config_file`, the first found file wins.
+
+        :param addon_name: Name of the addon (the part after
+            ``addon.`` in the addon file name).
+        :returns: The resolved (absolute) path of the addon's config
+            file, or ``None`` when neither exists.
+        """
+        file_name = (f"{ADDON_CONFIG_FILE_PREFIX}{addon_name}"
+                     f"{ADDON_CONFIG_FILE_SUFFIX}")
+        for directory in (self.context_dir / DEV_ISOLATOR_DIR,
+                          self.bundled_dir):
+            candidate = directory / file_name
+            dprint(Verbosity.TRACE, f"Try addon config file {candidate}")
+            resolved = candidate.resolve()
+            if resolved.is_file():
+                return resolved
+        return None
+
+    def addon_run_settings(self) -> tuple[dict[str, str], dict[str, dict]]:
+        """Return the environment variables and volume mounts
+        requested by the enabled addons' config files.
+
+        Every enabled addon with a ``config.<addon_name>.yaml`` file
+        (see :meth:`addon_config_file`) contributes its entries:
+
+        - ``environment`` names environment variables which are
+          taken from the host environment (variables that are not
+          set on the host are skipped with a message).
+        - ``volumes`` holds ``host:container[:mode]`` specs;
+          ``ENV[VAR]`` references are resolved (a spec referencing an
+          unset variable is skipped), then ``~`` and ``${VAR}`` in
+          the host path are expanded.
+
+        :returns: The tuple ``(environment, volumes)`` where
+            ``environment`` maps variable names to their host values
+            and ``volumes`` maps expanded host paths to
+            ``{"bind": container_path, "mode": mode}`` dicts, in the
+            shape expected by the podman bindings'
+            ``containers.create()``.
+        :raises RuntimeError: if an addon config file is invalid.
+        """
+        environment: dict[str, str] = {}
+        volumes: dict[str, dict] = {}
+        for addon in self.addon_files():
+            addon_name = addon.name.removeprefix("addon.")
+            config_file = self.addon_config_file(addon_name)
+            if not config_file:
+                continue
+            config = read_addon_config(config_file)
+            dprint(Verbosity.INFO,
+                   f"Addon config for {addon_name}: {config_file}")
+            for name in config["environment"]:
+                value = os.environ.get(name)
+                if value is None:
+                    dprint(Verbosity.INFO,
+                           f"Environment variable {name} requested by "
+                           f"{config_file.name} is not set; skipping")
+                    continue
+                environment[name] = value
+            for spec in config["volumes"]:
+                host, container_path, mode = parse_volume_spec(spec)
+                host = resolve_env_references(host)
+                container_path = resolve_env_references(container_path)
+                mode = resolve_env_references(mode)
+                if host is None or container_path is None or mode is None:
+                    dprint(Verbosity.INFO, f"Skipping {spec} due to missing"
+                                           " environment variables.")
+                    continue
+                host = os.path.expanduser(os.path.expandvars(host))
+                volumes[host] = {"bind": container_path, "mode": mode}
+        dprint(Verbosity.TRACE, f"Environment: {str(environment)}")
+        dprint(Verbosity.TRACE, f"Volumes: {str(volumes)}")
+
+        return environment, volumes

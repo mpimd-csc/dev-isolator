@@ -36,7 +36,7 @@ class TestAddonConfigFile:
         config_dir = tmp_path / ".devisolator"
         (config_dir / "config.mine.yaml").write_text("environment: []\n")
 
-        found = definition.addon_config_file("mine")
+        found = definition.addons.addon_config_file("mine")
 
         assert found == (config_dir / "config.mine.yaml").resolve()
 
@@ -46,11 +46,11 @@ class TestAddonConfigFile:
         config_dir = tmp_path / ".devisolator"
         (config_dir / "config.other.yaml").write_text("environment: []\n")
 
-        assert definition.addon_config_file("mine") is None
+        assert definition.addons.addon_config_file("mine") is None
 
     def test_no_config_file_at_all(self, definition):
         """Without any config file, None is returned."""
-        assert definition.addon_config_file("mine") is None
+        assert definition.addons.addon_config_file("mine") is None
 
 
 class TestReadAddonConfig:
@@ -194,14 +194,14 @@ class TestAddonRunSettings:
     def test_environment_vars_are_taken_from_host(self, with_config):
         """Listed variables set on the host are passed with their
         value; unset ones are skipped."""
-        environment, _ = with_config.addon_run_settings()
+        environment, _ = with_config.addons.addon_run_settings()
 
         assert environment == {"DEV_ISOLATOR_TEST_VAR": "test-value"}
 
     def test_volumes_are_expanded(self, with_config):
         """~ and ${VAR} in the host path are expanded, ENV[VAR]
         references are resolved; the mode is kept."""
-        _, volumes = with_config.addon_run_settings()
+        _, volumes = with_config.addons.addon_run_settings()
 
         assert volumes == {
             "/host/data": {"bind": "/container/data", "mode": "ro"},
@@ -219,7 +219,7 @@ class TestAddonRunSettings:
             "  - ENV[DEV_ISOLATOR_TEST_UNSET]:/container\n")
         monkeypatch.delenv("DEV_ISOLATOR_TEST_UNSET", raising=False)
 
-        _, volumes = definition.addon_run_settings()
+        _, volumes = definition.addons.addon_run_settings()
 
         assert volumes == {}
 
@@ -227,7 +227,7 @@ class TestAddonRunSettings:
             self, definition):
         """Without any addon config file, empty settings are
         returned."""
-        assert definition.addon_run_settings() == ({}, {})
+        assert definition.addons.addon_run_settings() == ({}, {})
 
 
 class FakeCreatedContainer:
