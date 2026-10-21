@@ -256,6 +256,110 @@ class ContainerDefintion:
                       f"{self.container_name()}: {e}", file=sys.stderr)
         return exit_code
 
+    def clean_image(self):
+        """Remove the image built for this container definition.
+
+        Stops (eventually killing) all containers based on the image
+        and removes them before the image is removed.
+
+        When the global verbosity (see :func:`utils.set_verbosity`)
+        is at least ``Verbosity.INFO`` (for example ``--verbose``),
+        the removed containers and image are printed to stdout.
+        :raises RuntimeError: if podman refuses to remove the image.
+        """
+
+        with podman.PodmanClient() as client:
+            try:
+                image = client.images.get(self.image_name())
+            except (podman.errors.NotFound, podman.errors.ImageNotFound):
+                dprint(Verbosity.INFO, "Image "
+                       f"{self.image_name()} not found; nothing to clean")
+                return
+            self._clean_images(client, [image])
+
+    def clean_all_images(self):
+        """Remove all dev-isolator images.
+
+        Stops (eventually killing) all containers based on any
+        dev-isolator image and removes them before the images are
+        removed.
+
+        When the global verbosity (see :func:`utils.set_verbosity`)
+        is at least ``Verbosity.INFO`` (for example ``--verbose``),
+        the removed containers and images are printed to stdout.
+        :raises RuntimeError: if podman refuses to remove the images.
+        """
+
+        with podman.PodmanClient() as client:
+            images = [image for image in client.images.list()
+                      if self._is_devisolator_image(image)]
+            if not images:
+                dprint(Verbosity.INFO,
+                       f"No {IMAGE_PREFIX} images found; nothing to clean")
+                return
+            self._clean_images(client, images)
+
+    @staticmethod
+    def _is_devisolator_image(image) -> bool:
+        """Return whether ``image`` is tagged as a dev-isolator image.
+
+        A image counts as dev-isolator image, when one of its tags
+        names the ``IMAGE_PREFIX`` repository (the tag with the
+        slug), for example ``dev-isolator:my-project`` or
+        ``localhost/dev-isolator:my-project``.
+        """
+        return any(
+            tag.partition("@")[0].rsplit("/", 1)[-1].rsplit(":", 1)[0]
+            == IMAGE_PREFIX
+            for tag in image.tags or [])
+
+    @staticmethod
+    def _clean_images(client, images):
+        """Stop and remove the containers based on ``images`` and
+        remove the images afterwards.
+
+        :param client: Connected :class:`podman.PodmanClient`.
+        :param images: Images to remove.
+        :raises RuntimeError: if podman refuses to remove an image.
+        """
+        image_ids = {image.id for image in images}
+
+        for container in client.containers.list(all=True):
+            # The container report keys "ImageID" and "Image" name
+            # the image the container was created from.
+            container_image_id = container.attrs.get("ImageID") \
+                or container.attrs.get("Image")
+            if container_image_id is None \
+                    or container_image_id not in image_ids:
+                continue
+            name = container.name or container.id
+            try:
+                container.reload()
+                if container.status == "running":
+                    try:
+                        container.stop(timeout=10)
+                        dprint(Verbosity.INFO, f"Stopped container {name}")
+                    except podman.errors.APIError:
+                        # Fall back to killing the container.
+                        container.kill()
+                        dprint(Verbosity.INFO, f"Killed container {name}")
+                container.remove()
+                dprint(Verbosity.INFO, f"Removed container {name}")
+            except podman.errors.NotFound:
+                dprint(Verbosity.INFO, f"Container {name} is already gone")
+            except podman.errors.APIError as e:
+                print(f"Warning: could not remove container "
+                      f"{name}: {e}", file=sys.stderr)
+
+        for image in images:
+            shown_name = ", ".join(image.tags) if image.tags else image.id
+            try:
+                client.images.remove(image.id, force=True)
+                dprint(Verbosity.INFO, f"Removed image {shown_name}")
+            except podman.errors.APIError as e:
+                raise RuntimeError(
+                    f"Failed to remove image {shown_name}: {e}") from e
+
     def image_name(self) -> str:
         """Return the image name
            ``dev-isolator:<slug_of_the_current_path>``."""

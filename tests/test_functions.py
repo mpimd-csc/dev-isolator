@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from dev_isolator.container_manager import ContainerDefintion
+from dev_isolator.main import create_parser
 
 
 class TestMergedContainerfile:
@@ -55,3 +56,61 @@ class TestMergedContainerfile:
 
         assert len(addons) == len({a for a in addons})
         assert addons  # the bundled directory ships at least one addon
+
+
+class FakeImage:
+    """Minimal stand-in for a podman Image."""
+
+    def __init__(self, tags):
+        self.tags = tags
+
+
+class TestIsDevisolatorImage:
+    """Test recognizing dev-isolator images by their tags."""
+
+    def test_plain_prefix_tag_matches(self):
+        image = FakeImage(["dev-isolator:my-project"])
+        assert ContainerDefintion._is_devisolator_image(image)
+
+    def test_localhost_prefixed_tag_matches(self):
+        # podman tags images built locally with a "localhost/" prefix.
+        image = FakeImage(["localhost/dev-isolator:my-project"])
+        assert ContainerDefintion._is_devisolator_image(image)
+
+    def test_registry_prefixed_tag_matches(self):
+        image = FakeImage(["quay.io/example/dev-isolator:my-project"])
+        assert ContainerDefintion._is_devisolator_image(image)
+
+    def test_similar_prefix_does_not_match(self):
+        image = FakeImage(["dev-isolator-smoketest:latest"])
+        assert not ContainerDefintion._is_devisolator_image(image)
+
+    def test_unrelated_tags_do_not_match(self):
+        image = FakeImage(["ubuntu:24.04"])
+        assert not ContainerDefintion._is_devisolator_image(image)
+
+    def test_untagged_image_does_not_match(self):
+        image = FakeImage([])
+        assert not ContainerDefintion._is_devisolator_image(image)
+
+
+class TestCleanParser:
+    """Test the CLI arguments of the clean subcommand."""
+
+    def test_clean_defaults_to_current_image(self):
+        parser = create_parser()
+        args = parser.parse_args(["clean"])
+        assert args.command == "clean"
+        assert args.clean_all is False
+
+    def test_clean_all_long_option(self):
+        parser = create_parser()
+        args = parser.parse_args(["clean", "--all"])
+        assert args.command == "clean"
+        assert args.clean_all is True
+
+    def test_clean_all_short_option(self):
+        parser = create_parser()
+        args = parser.parse_args(["clean", "-a"])
+        assert args.command == "clean"
+        assert args.clean_all is True

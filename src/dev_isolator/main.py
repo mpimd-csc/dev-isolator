@@ -50,6 +50,19 @@ def create_parser() -> argparse.ArgumentParser:
         help=f"Shell to start inside the container. Default: {DEFAULT_SHELL}.",
     )
 
+    clean_parser = subparsers.add_parser(
+        "clean",
+        help="Remove the current dev-isolator image.",
+    )
+    clean_parser.add_argument(
+        "-a",
+        "--all",
+        dest="clean_all",
+        action="store_true",
+        help="Remove all dev-isolator images instead of only "
+             "the current one.",
+    )
+
     return parser
 
 
@@ -92,6 +105,18 @@ def build(args) -> int:
     return 0
 
 
+def clean(args) -> int:
+    try:
+        if args.clean_all:
+            ContainerDefintion().clean_all_images()
+        else:
+            ContainerDefintion().clean_image()
+    except Exception as e:
+        print(f"An error occured: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main() -> int:
     """Main CLI entry point."""
     parser = create_parser()
@@ -108,6 +133,8 @@ def main() -> int:
         return run(args)
     if args.command == "build":
         return build(args)
+    if args.command == "clean":
+        return clean(args)
     return 0
 if __name__ == "__main__":
     sys.exit(main())
