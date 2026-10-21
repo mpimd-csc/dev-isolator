@@ -29,3 +29,7 @@ RUN set -eux; \
     useradd --uid {{ uid }} --gid {{ gid }} \
         --create-home --home-dir {{ home_dir }} --shell /bin/bash {{ username }}
 USER {{ username }}
+RUN mkdir -p "{{ home_dir }}/.config" && \
+    mkdir -p "{{ home_dir }}/.local"
+
+

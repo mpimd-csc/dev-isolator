@@ -297,22 +297,27 @@ class ContainerDefintion:
                     entry = json.loads(
                         entry.decode(errors='replace').strip())
                 for stream in entry.get("stream", "").splitlines():
-                    print(f"[build] {stream}")
+                    dprint(Verbosity.TRACE, f"[build] {stream}")
 
-        print(f"Built image {image.id} tagged {tag}")
+        dprint(Verbosity.INFO, f"Built image {image.id} tagged {tag}")
         return image
 
-    def run_container(self, interactive_shell: str = "bash"):
+    def run_container(self, interactive_shell: str = "bash",
+                      command: list[str] | None = None) -> int:
         """Open an interactive terminal/shell inside the container.
 
         Builds the image (see :meth:`build_container`), creates the
         container from it (or reuses one created earlier), ensures
         it is running and then attaches the local terminal to a
-        shell inside the container. The container is stopped again
-        after the shell session ends (unless it is already gone).
+        command inside the container. The container is stopped again
+        after the session ends (unless it is already gone).
 
         :param interactive_shell: Shell to start inside the container.
-        :returns: The exit code of the shell session.
+            Ignored when ``command`` is given.
+        :param command: Optional command to run inside the container
+            instead of the interactive shell, for example
+            ``["opencode", "--port", "4096"]``.
+        :returns: The exit code of the session.
         :raises RuntimeError: if the container does not reach the
             ``running`` state.
 
@@ -361,13 +366,15 @@ class ContainerDefintion:
                 volumes=volumes,
                 detach=True,
             )
-            print(f"Created container {self.container_name()} "
-                  f"from {self.image_name()}")
+            dprint(Verbosity.INFO,
+                   f"Created container {self.container_name()} "
+                   f"from {self.image_name()}")
 
             container.reload()
             if container.status in ("created", "exited", "stopped"):
                 container.start()
-                print(f"Started container {self.container_name()}")
+                dprint(Verbosity.INFO,
+                       f"Started container {self.container_name()}")
                 # Wait until the container is actually running before
                 # attaching, otherwise podman exec may hit it too early.
                 for _ in range(100):
@@ -382,31 +389,42 @@ class ContainerDefintion:
                         f"Container {self.container_name()} did not reach "
                         f"'running' state (status: {container.status})")
 
+            if command is None:
+                exec_argv = [interactive_shell]
+            else:
+                exec_argv = list(command)
             exec_cmd = [
                 "podman", "exec", "-it",
                 "--detach-keys", "",
                 "-e", f"TERM={os.environ.get('TERM', 'xterm')}",
                 self.container_name(),
-                interactive_shell,
+                *exec_argv,
             ]
-            print(f"Opening terminal in {self.container_name()} "
-                  f"({interactive_shell}; detach with Ctrl-D or 'exit')")
+            session_command = " ".join(exec_argv)
+            dprint(Verbosity.INFO,
+                   f"Opening terminal in {self.container_name()} "
+                   f"({session_command}; detach with Ctrl-D or 'exit')")
             exit_code = subprocess.call(exec_cmd)
-            print(f"Shell in {self.container_name()} exited "
-                  f"(exit code: {exit_code})")
+            dprint(Verbosity.INFO,
+                   f"Session in {self.container_name()} exited "
+                   f"(exit code: {exit_code})")
 
             # Shut the container down after the terminal session ends.
             try:
                 container.stop(timeout=0)
-                print(f"Stopped container {self.container_name()}")
+                dprint(Verbosity.INFO,
+                       f"Stopped container {self.container_name()}")
                 container.remove()
-                print(f"Removed container {self.container_name()}")
+                dprint(Verbosity.INFO,
+                       f"Removed container {self.container_name()}")
             except podman.errors.NotFound:
                 # Container was removed elsewhere; nothing to shut down.
-                print(f"Container {self.container_name()} is already gone")
+                dprint(Verbosity.INFO,
+                       f"Container {self.container_name()} is already gone")
             except podman.errors.APIError as e:
-                print(f"Warning: could not stop container "
-                      f"{self.container_name()}: {e}", file=sys.stderr)
+                dprint(Verbosity.INFO,
+                       f"Warning: could not stop container "
+                       f"{self.container_name()}: {e}", file=sys.stderr)
         return exit_code
 
     def clean_image(self):

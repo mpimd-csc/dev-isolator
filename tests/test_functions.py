@@ -8,7 +8,7 @@ from pathlib import Path
 import podman.errors
 import pytest
 from dev_isolator.container_manager import ContainerDefintion, BUNDLE_DIR
-from dev_isolator.main import create_parser
+from dev_isolator.main import create_parser, parse_args
 from dev_isolator.utils import Verbosity
 
 
@@ -428,3 +428,170 @@ class TestCleanParser:
         args = parser.parse_args(["clean", "-a"])
         assert args.command == "clean"
         assert args.clean_all is True
+
+
+class TestOpencodeParser:
+    """Test the CLI arguments of the opencode subcommand."""
+
+    def test_opencode_without_args(self):
+        args = parse_args(["opencode"])
+        assert args.command == "opencode"
+        assert args.opencode_args == []
+
+    def test_opencode_passes_plain_arguments(self):
+        args = parse_args(["opencode", "auth", "login"])
+        assert args.command == "opencode"
+        assert args.opencode_args == ["auth", "login"]
+
+    def test_opencode_passes_leading_options_verbatim(self):
+        """Options starting with '-' are passed to opencode,
+        not parsed by the dev-isolator parser."""
+        args = parse_args(
+            ["opencode", "--port", "4096", "-m", "some.model"])
+        assert args.command == "opencode"
+        assert args.opencode_args == ["--port", "4096",
+                                      "-m", "some.model"]
+
+    def test_opencode_after_verbosity_flags(self):
+        """Global verbosity flags before the subcommand are honored
+        and do not stop the verbatim arguments from being passed."""
+        args = parse_args(["-vvv", "opencode", "--port", "4096"])
+        assert args.verbose == 3
+        assert args.command == "opencode"
+        assert args.opencode_args == ["--port", "4096"]
+
+    def test_opencode_token_after_other_subcommand_is_not_split(self):
+        """``opencode`` used as a value of another subcommand's
+        option does not hijack the parsing."""
+        args = parse_args(["run", "--shell", "opencode"])
+        assert args.command == "run"
+        assert args.shell == "opencode"
+
+    def test_opencode_uses_cli_arguments(self, monkeypatch):
+        """main's argument parsing takes the arguments after
+        ``opencode`` from the CLI verbatim."""
+        import sys
+
+        monkeypatch.setattr(sys, "argv",
+                            ["dev-isolator", "opencode", "--port", "4096"])
+
+        args = parse_args()
+
+        assert args.command == "opencode"
+        assert args.opencode_args == ["--port", "4096"]
+
+
+class FakeRunContainer:
+    """Minimal stand-in for a running podman Container."""
+
+    def __init__(self, name="fake"):
+        self.name = name
+        self.status = "running"
+
+    def reload(self):
+        pass
+
+    def start(self):
+        pass
+
+    def stop(self, timeout=None):
+        pass
+
+    def remove(self):
+        pass
+
+
+class FakeRunContainers:
+    """Minimal stand-in for the podman containers manager."""
+
+    def __init__(self):
+        self.created = []
+
+    def create(self, *args, **kwargs):
+        self.created.append(kwargs)
+        return FakeRunContainer(kwargs.get("name", "fake"))
+
+
+class FakeRunClient:
+    """Stand-in for podman.PodmanClient in ``run_container``."""
+
+    def __init__(self, images, containers):
+        self.images = images
+        self.containers = containers
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class TestRunContainerCommand:
+    """Test that run_container execs the requested command."""
+
+    @pytest.fixture
+    def project(self, tmp_path: Path):
+        """A small project without custom addons."""
+        config_dir = tmp_path / ".devisolator"
+        config_dir.mkdir()
+        container_file = config_dir / "Containerfile"
+        container_file.write_text("FROM ubuntu:26.04\n")
+        return ContainerDefintion(container_file, tmp_path)
+
+    @pytest.fixture
+    def exec_cmd(self, monkeypatch):
+        """Capture the ``podman exec`` command built by
+        run_container instead of calling the real CLI."""
+        commands = []
+        monkeypatch.setattr(
+            "dev_isolator.container_manager.subprocess.call",
+            lambda cmd: commands.append(cmd) or 0)
+        return commands
+
+    def test_execs_given_command(self, project, monkeypatch, exec_cmd):
+        """run_container runs the given command instead of a shell
+        inside the container."""
+        import os
+
+        expected_term = os.environ.get("TERM", "xterm")
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+        images = FakeImages()
+        images.existing[project.image_name()] = FakeImage(
+            id="sha256:abc123", tags=[project.image_name()])
+        containers = FakeRunContainers()
+        monkeypatch.setattr(
+            "dev_isolator.container_manager.podman.PodmanClient",
+            lambda: FakeRunClient(images, containers))
+
+        exit_code = project.run_container(
+            command=["opencode", "auth", "login"])
+
+        assert exit_code == 0
+        assert len(exec_cmd) == 1
+        cmd = exec_cmd[0]
+        assert cmd[:7] == ["podman", "exec", "-it", "--detach-keys", "",
+                           "-e", f"TERM={expected_term}"]
+        # The session runs in the created container ...
+        assert cmd[-4] == containers.created[0]["name"]
+        # ... and the command with its arguments.
+        assert cmd[-3:] == ["opencode", "auth", "login"]
+
+    def test_defaults_to_interactive_shell(self, project, monkeypatch,
+                                           exec_cmd):
+        """Without a command, run_container still opens the
+        interactive shell."""
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+        images = FakeImages()
+        images.existing[project.image_name()] = FakeImage(
+            id="sha256:abc123", tags=[project.image_name()])
+        containers = FakeRunContainers()
+        monkeypatch.setattr(
+            "dev_isolator.container_manager.podman.PodmanClient",
+            lambda: FakeRunClient(images, containers))
+
+        project.run_container("zsh")
+
+        assert len(exec_cmd) == 1
+        assert exec_cmd[0][-1] == "zsh"

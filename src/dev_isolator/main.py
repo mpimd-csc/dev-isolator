@@ -44,13 +44,12 @@ def create_parser() -> argparse.ArgumentParser:
             help="Pass the --nocache option to podman build."
             )
 
-
-    run_parser = subparsers.add_parser(
-        "run",
+    shell_parser = subparsers.add_parser(
+        "shell",
         help="Open a terminal/shell inside the container "
              "isolator-<slug_of_the_current_path>.",
     )
-    run_parser.add_argument(
+    shell_parser.add_argument(
         "--shell",
         "-s",
         type=str,
@@ -71,10 +70,34 @@ def create_parser() -> argparse.ArgumentParser:
              "the current one.",
     )
 
+    subparsers.add_parser(
+        "opencode",
+        add_help=False,
+        help="Run opencode inside the container "
+             "isolator-<slug_of_the_current_path>, "
+             "passing all following arguments to it "
+             "(for example ``opencode --port 4096``).",
+    )
+
+    subparsers.add_parser(
+        "claude",
+        add_help=False,
+        help="Run claude inside the container "
+             "isolator-<slug_of_the_current_path>, "
+             "passing all following arguments to it "
+             "(for example ``claude --model xyz``).",
+    )
+
+    subparsers.add_parser(
+        "run",
+        add_help=False,
+        help="Run a command inside the container.",
+        )
+
     return parser
 
 
-def run(args) -> int:
+def shell(args) -> int:
     config = config_path(".devisolator")
     context_dir = config.parent
     container_file = config / "Containerfile"
@@ -130,24 +153,52 @@ def clean(args) -> int:
     return 0
 
 
+def in_container_command(command, remainder) -> int:
+    config = config_path(".devisolator")
+    context_dir = config.parent
+    container_file = config / "Containerfile"
+
+    dprint(Verbosity.INFO, f"Found .devisolator directory in {config}")
+
+    if config:
+        definition = ContainerDefintion(container_file, context_dir)
+    else:
+        definition = ContainerDefintion()
+
+    try:
+        return definition.run_container(
+            command=[command, *remainder])
+    except Exception as e:
+        print(f"An error occured: {e}", file=sys.stderr)
+        return 1
+
+
 def main() -> int:
     """Main CLI entry point."""
     parser = create_parser()
-    args = parser.parse_args()
+    args, remainder = parser.parse_known_args()
 
     set_verbosity(Verbosity(args.verbose))
 
     # Without a subcommand, behave as if "run" was specified.
     if args.command is None:
-        args.command = "run"
+        args.command = "shell"
         args.shell = DEFAULT_SHELL
 
-    if args.command == "run":
-        return run(args)
+    if args.command == "shell":
+        return shell(args)
     if args.command == "build":
         return build(args)
     if args.command == "clean":
         return clean(args)
+    if args.command == "opencode":
+        return in_container_command("opencode", remainder)
+    if args.command == "claude":
+        return in_container_command("claude", remainder)
+    if args.command == "run":
+        return in_container_command(remainder[0], remainder[1:])
     return 0
+
+
 if __name__ == "__main__":
     sys.exit(main())
