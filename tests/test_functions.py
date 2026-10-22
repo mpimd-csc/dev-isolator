@@ -8,7 +8,7 @@ from pathlib import Path
 import podman.errors
 import pytest
 from dev_isolator.container_manager import ContainerDefintion, BUNDLE_DIR
-from dev_isolator.main import create_parser, parse_args
+from dev_isolator.main import DEFAULT_SHELL, create_parser, parse_args
 from dev_isolator.utils import Verbosity
 
 
@@ -461,9 +461,10 @@ class TestOpencodeParser:
         assert args.opencode_args == ["--port", "4096"]
 
     def test_opencode_token_after_other_subcommand_is_not_split(self):
-        """``opencode`` used as a value of another subcommand's
-        option does not hijack the parsing."""
-        args = parse_args(["run", "--shell", "opencode"])
+        """``opencode`` used as the value of the global ``--shell``
+        option does not hijack the parsing of the following
+        subcommand."""
+        args = parse_args(["--shell", "opencode", "run"])
         assert args.command == "run"
         assert args.shell == "opencode"
 
@@ -479,6 +480,55 @@ class TestOpencodeParser:
 
         assert args.command == "opencode"
         assert args.opencode_args == ["--port", "4096"]
+
+
+class TestGlobalShellOption:
+    """Test the global ``--shell``/``-s`` option.
+
+    The option lives on the top level parser, so it precedes the sub
+    command and applies to ``shell`` as well as to the pass-through
+    commands that fall back to an interactive shell.
+    """
+
+    def test_default_shell_is_bash(self):
+        args = parse_args([])
+        assert args.command == "shell"
+        assert args.shell == DEFAULT_SHELL
+
+    def test_shell_long_option(self):
+        args = parse_args(["--shell", "zsh"])
+        assert args.command == "shell"
+        assert args.shell == "zsh"
+
+    def test_shell_short_option(self):
+        args = parse_args(["-s", "fish"])
+        assert args.command == "shell"
+        assert args.shell == "fish"
+
+    def test_shell_before_explicit_shell_subcommand(self):
+        args = parse_args(["--shell", "zsh", "shell"])
+        assert args.command == "shell"
+        assert args.shell == "zsh"
+
+    def test_shell_before_run(self):
+        args = parse_args(["--shell", "zsh", "run", "make", "test"])
+        assert args.command == "run"
+        assert args.shell == "zsh"
+        assert args.run_args == ["make", "test"]
+
+    def test_shell_before_opencode(self):
+        args = parse_args(["--shell", "zsh", "opencode", "--port", "4096"])
+        assert args.command == "opencode"
+        assert args.shell == "zsh"
+        assert args.opencode_args == ["--port", "4096"]
+
+    def test_shell_value_does_not_hijack_subcommand(self):
+        """A sub command name given as the value of ``--shell`` is not
+        mistaken for the sub command itself."""
+        args = parse_args(["--shell", "opencode", "run"])
+        assert args.command == "run"
+        assert args.shell == "opencode"
+        assert args.run_args == []
 
 
 class FakeRunContainer:

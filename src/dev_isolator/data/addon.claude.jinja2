@@ -1,6 +1,11 @@
 USER root
-RUN apt update && apt install --yes curl
-RUN apt install --yes mc
+RUN if [ "X$(which apt)" != "X" ] ; then \
+        apt update && apt install --yes curl ; \
+    elif [ "X$(which dnf)" != "X" ]; then \
+        dnf install -y curl ; \
+    else  \
+        exit 1;  \
+    fi
 USER {{ username }}
 RUN curl -fsSL https://claude.ai/install.sh | bash
 USER root

@@ -46,14 +46,15 @@ pytest
 ### Command line overview
 
 ```
-dev-isolator [--verbose/-v]... <subcommand> [arguments]
+dev-isolator [--verbose/-v]... [--shell/-s <shell>] <subcommand> [arguments]
 ```
 
-Global option:
+Global options:
 
 | Option | Description |
 |---|---|
 | `--verbose`, `-v` | Increase verbosity. Repeat for more details: `-v` (info), `-vv` (debug), `-vvv` (trace, e.g. prints the merged Containerfile and build logs). |
+| `--shell`, `-s` | Shell to start inside the container. Default: `bash`. Applies to `shell` and to the interactive session started by `run`/`opencode`/`claude` when no command is given. |
 
 Subcommands:
 
@@ -104,7 +105,7 @@ Options:
 ```bash
 dev-isolator shell
 dev-isolator              # equivalent, shell is the default
-dev-isolator shell -s zsh # start zsh instead of bash
+dev-isolator --shell zsh  # start zsh instead of bash
 ```
 
 Opens an interactive shell inside the container:
@@ -128,9 +129,8 @@ Opens an interactive shell inside the container:
 
 Options:
 
-| Option | Description |
-|---|---|
-| `--shell <shell>`, `-s <shell>` | Shell to start inside the container. Default: `bash`. |
+See [Command line overview](#command-line-overview) for the global
+`--shell`/``-s` option, which selects the shell started here.
 
 ### `run`, `opencode`, `claude`
 
