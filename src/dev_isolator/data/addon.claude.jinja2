@@ -1,7 +1,7 @@
 USER root
-RUN if [ "X$(which apt)" != "X" ] ; then \
+RUN if [ -x /usr/bin/apt ]; then \
         apt update && apt install --yes curl ; \
-    elif [ "X$(which dnf)" != "X" ]; then \
+    elif [ -x /usr/bin/dnf ]; then \
         dnf install -y curl ; \
     else  \
         exit 1;  \

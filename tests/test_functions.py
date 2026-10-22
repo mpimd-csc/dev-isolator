@@ -3,6 +3,8 @@
 SPDX-License-Identifier: GPL-3.0-or-later
 """
 
+import importlib
+import sys
 from pathlib import Path
 
 import podman.errors
@@ -531,6 +533,52 @@ class TestGlobalShellOption:
         assert args.run_args == []
 
 
+class TestPrecommandOptions:
+    """Unknown options before the sub command must be an error.
+
+    The global options live on the top level parser and precede the sub
+    command; options following ``opencode``/``claude``/``run`` belong to
+    the command inside the container and are still passed through.
+    """
+
+    def test_unknown_option_before_build_is_error(self):
+        with pytest.raises(SystemExit) as excinfo:
+            parse_args(["--bogus", "build"])
+        assert excinfo.value.code == 2
+
+    def test_unknown_option_before_shell_is_error(self):
+        with pytest.raises(SystemExit) as excinfo:
+            parse_args(["-x", "shell"])
+        assert excinfo.value.code == 2
+
+    def test_unknown_option_only_is_error(self):
+        with pytest.raises(SystemExit) as excinfo:
+            parse_args(["--bogus"])
+        assert excinfo.value.code == 2
+
+    def test_multiple_unknown_options_before_command_are_error(self):
+        with pytest.raises(SystemExit) as excinfo:
+            parse_args(["--bogus", "-x", "build"])
+        assert excinfo.value.code == 2
+
+    def test_unknown_option_before_pass_through_command_is_error(
+            self):
+        """An unknown option before ``opencode`` is rejected instead of
+        being passed through to opencode."""
+        with pytest.raises(SystemExit) as excinfo:
+            parse_args(["--unknown", "opencode", "--port", "4096"])
+        assert excinfo.value.code == 2
+
+    def test_global_options_before_command_still_work(self):
+        """Recognized global options before the command are honored and
+        do not turn into an error."""
+        args = parse_args(["-vvv", "--shell", "zsh", "opencode"])
+        assert args.verbose == 3
+        assert args.shell == "zsh"
+        assert args.command == "opencode"
+        assert args.opencode_args == []
+
+
 class FakeRunContainer:
     """Minimal stand-in for a running podman Container."""
 
@@ -645,3 +693,49 @@ class TestRunContainerCommand:
 
         assert len(exec_cmd) == 1
         assert exec_cmd[0][-1] == "zsh"
+
+
+class TestMainRunDispatch:
+    """Test that main() dispatches the ``run`` subcommand correctly.
+
+    ``run`` without a command must fall back to ``shell``; with a
+    command it must pass the command and its arguments through to
+    ``in_container_command``.
+    """
+
+    def test_run_without_command_dispatches_to_shell(self, monkeypatch):
+        """``di run`` with no command opens the interactive shell
+        instead of raising a TypeError."""
+        di_main = importlib.import_module("dev_isolator.main")
+
+        called = {}
+
+        def fake_shell(args):
+            called["shell"] = args.shell
+            return 0
+
+        monkeypatch.setattr(di_main, "shell", fake_shell)
+        monkeypatch.setattr(sys, "argv", ["di", "run"])
+
+        assert di_main.main() == 0
+        # run without a command falls back to the shell handler, which
+        # starts the default shell.
+        assert called == {"shell": DEFAULT_SHELL}
+
+    def test_run_with_command_is_passed_through(self, monkeypatch):
+        """``di run make test`` passes the command and its arguments
+        through to in_container_command."""
+        di_main = importlib.import_module("dev_isolator.main")
+
+        called = {}
+
+        def fake_in_container(command, remainder):
+            called["call"] = (command, remainder)
+            return 0
+
+        monkeypatch.setattr(di_main, "in_container_command",
+                            fake_in_container)
+        monkeypatch.setattr(sys, "argv", ["di", "run", "make", "test"])
+
+        assert di_main.main() == 0
+        assert called["call"] == ("make", ["test"])

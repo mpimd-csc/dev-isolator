@@ -105,7 +105,10 @@ The dev-isolator command can also be abbreviated by `di`
 
     build_parser = subparsers.add_parser(
         "build",
-        help="Build the current devisolator image")
+        help="Build the current devisolator image",
+        description="Build the image from the project settings or the "
+                    "default one."
+        )
     build_parser.add_argument(
             "--nocache",
             "-n",
@@ -167,13 +170,51 @@ The dev-isolator command can also be abbreviated by `di`
     return parser
 
 
+def global_options_parser() -> argparse.ArgumentParser:
+    """Return a parser exposing only the global options.
+
+    The global options (``--verbose`` and ``--shell``) live on the top
+    level parser and must precede the sub command.  A parser with just
+    these options and no sub commands consumes the leading global
+    options and leaves the sub command — together with everything
+    following it and any options that precede it and are not global —
+    in the remainder, so the tokens before the sub command can be
+    validated on their own.
+    """
+    parser = argparse.ArgumentParser(prog="dev-isolator", add_help=False)
+    parser.add_argument("--verbose", "-v", action="count", default=0)
+    parser.add_argument("--shell", "-s", type=str, default=DEFAULT_SHELL)
+    return parser
+
+
+def reject_precommand_options(parser, argv) -> None:
+    """Abort on unknown options that appear before the sub command.
+
+    The global options precede the sub command; everything after it
+    belongs to the sub command (and, for the pass-through commands, to
+    the command inside the container).  Parsing ``argv`` with the
+    global-only parser leaves the sub command and any preceding unknown
+    options in the remainder, so the options before the first
+    non-option token — the sub command — are rejected as unrecognized.
+    """
+    _, remainder = global_options_parser().parse_known_args(argv)
+    command_index = next(
+        (i for i, token in enumerate(remainder)
+         if not token.startswith("-")),
+        len(remainder),
+    )
+    unknown = remainder[:command_index]
+    if unknown:
+        parser.error("unrecognized arguments: " + " ".join(unknown))
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     """Parse command line arguments into a namespace.
 
     Parse ``argv`` (by default ``sys.argv[1:]``) with the parser from
     ``create_parser``.  The global options (``--verbose`` and
     ``--shell``) live on the top level parser, so they must precede the
-    sub command.
+    sub command; unknown options before the sub command are rejected.
 
     The ``opencode``, ``claude`` and ``run`` sub commands disable their
     own help handling and define no arguments, so every token following
@@ -189,6 +230,8 @@ def parse_args(argv=None) -> argparse.Namespace:
 
     parser = create_parser()
     args, extras = parser.parse_known_args(argv)
+
+    reject_precommand_options(parser, argv)
 
     if args.command is None:
         args.command = "shell"
@@ -326,7 +369,7 @@ def main() -> int:
         if args.run_args:
             return in_container_command(args.run_args[0], args.run_args[1:])
         # Without a command, behave like ``shell``.
-        return in_container_command(args.shell)
+        return shell(args)
     return 0
 
 

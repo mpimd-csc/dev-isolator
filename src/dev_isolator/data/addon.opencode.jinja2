@@ -1,11 +1,11 @@
 USER root
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        git \
-        gnupg \
-        jq
+RUN if [ -x /usr/bin/apt ]; then \
+        apt update && apt install --yes curl ca-certificates git gnupg jq ; \
+    elif [ -x /usr/bin/dnf ]; then \
+        dnf install -y curl git jq gnupg; \
+    else  \
+        exit 1;  \
+    fi
 USER {{ username }}
 RUN  curl -fsSL https://opencode.ai/v2/install | bash
 USER root
