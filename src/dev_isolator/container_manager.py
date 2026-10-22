@@ -78,12 +78,15 @@ class ContainerDefintion:
     exists, otherwise the one bundled with dev-isolator. Without any
     ``config.yaml``, every ``addon.*`` file is appended.
 
-    When a container is run, each enabled addon may additionally
-    contribute environment variables and volume mounts through a
+    When a container is run, the environment variables and volume
+    mounts declared directly in the active ``config.yaml`` and, in
+    addition, those each enabled addon requests through a
     ``config.<addon_name>.yaml`` file (see
-    :class:`dev_isolator.addons_config.AddonsConfiguration`). Those
-    are passed to the container when it is created (see
-    :meth:`run_container`).
+    :class:`dev_isolator.addons_config.AddonsConfiguration`) are passed
+    to the container when it is created (see
+    :meth:`run_container`). Settings from ``config.yaml`` are applied
+    first, addon settings override them and the ``/workspace`` mount of
+    the current directory always takes precedence.
     """
 
     def __init__(self, container_file=None, context_dir=None):
@@ -349,11 +352,18 @@ class ContainerDefintion:
             environment: dict[str, str] = {}
             volumes: dict[str, dict] = {}
 
+            # Settings declared directly in the project's config.yaml.
+            config_environment, config_volumes = \
+                self.addons.config_run_settings()
+            environment |= config_environment
+            volumes |= config_volumes
+
+            # Settings requested by the enabled addons.
             addon_environment, addon_volumes = self.addons.addon_run_settings()
             environment |= addon_environment
             volumes |= addon_volumes
 
-            # Bind the workspace
+            # Bind the workspace last, so it always takes precedence.
             volumes[os.getcwd()] = {"bind": "/workspace", "mode": "rw"}
 
             dprint(Verbosity.INFO,
@@ -362,8 +372,6 @@ class ContainerDefintion:
             dprint(Verbosity.INFO,
                    f"Mounting volumes {sorted(volumes)} "
                    "into the container")
-
-            volumes[os.getcwd()] = {"bind": "/workspace", "mode": "rw"}
 
             container = client.containers.create(
                 image,

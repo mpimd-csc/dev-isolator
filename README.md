@@ -119,8 +119,9 @@ Opens an interactive shell inside the container:
    UID/GID as the host user, so files created in the `/workspace` bind
    mount stay owned by you.
 3. The current working directory is mounted read-write at
-   `/workspace`, plus the environment variables and volumes requested
-   by the enabled addons (see
+   `/workspace`, plus the environment variables and volumes declared
+   in `config.yaml` and requested by the enabled addons (see
+   [Project configuration](#project-configuration) and
    [Addon configuration](#addon-configuration-configaddon-yaml)).
 4. Your terminal is attached to a `podman exec -it` session running
    the shell (`bash` by default). Leave the session with `exit` or
@@ -187,12 +188,18 @@ The configuration of a containerized dev environment lives in the
 `.devisolator` directory of your project:
 
 - `Containerfile`: The base image definition.
-- `config.yaml`: Names the enabled addons:
+- `config.yaml`: Configures the addons and the container. Besides the
+  enabled addons it can also declare environment variables and
+  additional volume mounts for the container:
 
   ```yaml
   addons_enabled:
     - opencode
     - claude
+  environment:
+    - OMP_NUM_THREADS
+  volumes:
+    - /tmp:/host_tmp
   ```
 
 - `addon.<name>.jinja2`: A jinja2 template with the Containerfile
@@ -201,6 +208,12 @@ The configuration of a containerized dev environment lives in the
   host user.
 - `config.<addon>.yaml`: Runtime settings an addon requests for its
   container (see below).
+
+When a container is started, the `environment` and `volumes` sections
+of `config.yaml` are applied (see [below](#project-configuration)),
+followed by the settings requested by the enabled addons. Addon
+settings override those from `config.yaml`; the mount of the current
+directory at `/workspace` always takes precedence.
 
 Configuration resolution rules:
 
@@ -211,6 +224,10 @@ Configuration resolution rules:
 - The `addons_enabled` list names the addons to append to the
   Containerfile. Without any `config.yaml` at all, every
   `addon.*.jinja2` file is enabled.
+- The `environment` and `volumes` sections of `config.yaml` are
+  processed exactly like those of an addon config file (see below):
+  `environment` names variables taken from the host and `volumes`
+  lists `host:container[:mode]` specs.
 - Addon templates are collected first from the directory bundled with
   dev-isolator, then from `.devisolator/` (sorted by file name);
   duplicates are removed.

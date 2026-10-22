@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 import yaml
 from dev_isolator.addons_config import parse_volume_spec, \
-    read_addon_config, resolve_env_references
+    read_environment_and_volumes, resolve_env_references, \
+    run_settings_from_config
 from dev_isolator.container_manager import ContainerDefintion
 from dev_isolator.utils import Verbosity
 
@@ -53,8 +54,8 @@ class TestAddonConfigFile:
         assert definition.addons.addon_config_file("mine") is None
 
 
-class TestReadAddonConfig:
-    """Test parsing the content of config.<addon>.yaml files."""
+class TestReadEnvironmentAndVolumes:
+    """Test parsing the environment/volumes content of a config file."""
 
     def test_environment_and_volumes_are_read(self, tmp_path: Path):
         """Both sections are returned as lists of strings."""
@@ -63,7 +64,7 @@ class TestReadAddonConfig:
             "environment:\n  - VAR1\n  - VAR2\n"
             "volumes:\n  - /host:/container\n")
 
-        config = read_addon_config(config_file)
+        config = read_environment_and_volumes(config_file)
 
         assert config == {
             "environment": ["VAR1", "VAR2"],
@@ -75,7 +76,7 @@ class TestReadAddonConfig:
         config_file = tmp_path / "config.mine.yaml"
         config_file.write_text("environment:\n  - VAR1\n")
 
-        config = read_addon_config(config_file)
+        config = read_environment_and_volumes(config_file)
 
         assert config == {"environment": ["VAR1"], "volumes": []}
 
@@ -84,7 +85,7 @@ class TestReadAddonConfig:
         config_file = tmp_path / "config.mine.yaml"
         config_file.write_text("")
 
-        assert read_addon_config(config_file) == {
+        assert read_environment_and_volumes(config_file) == {
             "environment": [], "volumes": []}
 
     def test_invalid_yaml_raises(self, tmp_path: Path):
@@ -92,8 +93,8 @@ class TestReadAddonConfig:
         config_file = tmp_path / "config.mine.yaml"
         config_file.write_text("environment: [unclosed\n")
 
-        with pytest.raises(RuntimeError, match="Invalid addon config"):
-            read_addon_config(config_file)
+        with pytest.raises(RuntimeError, match="Invalid config"):
+            read_environment_and_volumes(config_file)
 
     def test_non_mapping_raises(self, tmp_path: Path):
         """A list instead of a mapping raises a RuntimeError."""
@@ -101,7 +102,7 @@ class TestReadAddonConfig:
         config_file.write_text("- VAR1\n")
 
         with pytest.raises(RuntimeError, match="expected a mapping"):
-            read_addon_config(config_file)
+            read_environment_and_volumes(config_file)
 
     def test_non_string_environment_entries_raise(self, tmp_path: Path):
         """Non-string environment entries raise a RuntimeError."""
@@ -109,7 +110,7 @@ class TestReadAddonConfig:
         config_file.write_text("environment:\n  - 1\n")
 
         with pytest.raises(RuntimeError, match="'environment' must be"):
-            read_addon_config(config_file)
+            read_environment_and_volumes(config_file)
 
     def test_non_list_volumes_raise(self, tmp_path: Path):
         """A mapping instead of a list raises a RuntimeError."""
@@ -117,7 +118,7 @@ class TestReadAddonConfig:
         config_file.write_text("volumes:\n  host: /container\n")
 
         with pytest.raises(RuntimeError, match="'volumes' must be"):
-            read_addon_config(config_file)
+            read_environment_and_volumes(config_file)
 
 
 class TestResolveEnvReferences:
@@ -228,6 +229,83 @@ class TestAddonRunSettings:
         """Without any addon config file, empty settings are
         returned."""
         assert definition.addons.addon_run_settings() == ({}, {})
+
+
+class TestRunSettingsFromConfig:
+    """Test turning a parsed config mapping into run settings."""
+
+    def test_environment_and_volumes_are_processed(self, monkeypatch):
+        """Environment variables are taken from the host and volumes
+        are expanded, exactly as for an addon config."""
+        monkeypatch.setenv("DEV_ISOLATOR_TEST_VAR", "test-value")
+        monkeypatch.setenv("DEV_ISOLATOR_TEST_HOST", "/env-host")
+
+        environment, volumes = run_settings_from_config({
+            "environment": ["DEV_ISOLATOR_TEST_VAR", "DEV_ISOLATOR_TEST_UNSET"],
+            "volumes": ["/host/data:/container/data:ro",
+                        "ENV[DEV_ISOLATOR_TEST_HOST]:/env/data"],
+        })
+
+        assert environment == {"DEV_ISOLATOR_TEST_VAR": "test-value"}
+        assert volumes == {
+            "/host/data": {"bind": "/container/data", "mode": "ro"},
+            "/env-host": {"bind": "/env/data", "mode": "rw"},
+        }
+
+    def test_empty_config_yields_empty_settings(self):
+        """An empty mapping yields empty environment and volumes."""
+        assert run_settings_from_config(
+            {"environment": [], "volumes": []}) == ({}, {})
+
+
+class TestConfigRunSettings:
+    """Test collecting environment variables and volumes from the
+    active config.yaml."""
+
+    def test_config_env_and_volumes_are_read(
+            self, definition, tmp_path: Path, monkeypatch):
+        """The environment and volumes sections of config.yaml are
+        processed like an addon config."""
+        config_dir = tmp_path / ".devisolator"
+        (config_dir / "config.yaml").write_text(
+            "environment:\n"
+            "  - DEV_ISOLATOR_TEST_VAR\n"
+            "  - DEV_ISOLATOR_TEST_UNSET\n"
+            "volumes:\n"
+            "  - /host/data:/container/data:ro\n"
+            "  - ENV[DEV_ISOLATOR_TEST_HOST]:/env/data\n")
+        monkeypatch.setenv("DEV_ISOLATOR_TEST_VAR", "test-value")
+        monkeypatch.setenv("DEV_ISOLATOR_TEST_HOST", "/env-host")
+
+        environment, volumes = definition.addons.config_run_settings()
+
+        assert environment == {"DEV_ISOLATOR_TEST_VAR": "test-value"}
+        assert volumes == {
+            "/host/data": {"bind": "/container/data", "mode": "ro"},
+            "/env-host": {"bind": "/env/data", "mode": "rw"},
+        }
+
+    def test_missing_sections_yield_empty_settings(
+            self, definition, tmp_path: Path):
+        """A config.yaml without environment/volumes yields empty
+        settings."""
+        config_dir = tmp_path / ".devisolator"
+        (config_dir / "config.yaml").write_text("addons_enabled:\n  - mine\n")
+
+        assert definition.addons.config_run_settings() == ({}, {})
+
+    def test_no_config_file_yields_empty_settings(self, definition):
+        """Without any config.yaml, empty settings are returned."""
+        assert definition.addons.config_run_settings() == ({}, {})
+
+    def test_invalid_config_file_raises(
+            self, definition, tmp_path: Path):
+        """An invalid config.yaml raises a RuntimeError."""
+        config_dir = tmp_path / ".devisolator"
+        (config_dir / "config.yaml").write_text("environment: [unclosed\n")
+
+        with pytest.raises(RuntimeError, match="Invalid config"):
+            definition.addons.config_run_settings()
 
 
 class FakeCreatedContainer:
@@ -359,4 +437,68 @@ class TestRunContainerSettings:
 
         assert containers.created["environment"] == {}
         assert containers.created["volumes"] == {
+            os.getcwd(): {"bind": "/workspace", "mode": "rw"}}
+
+    def test_config_yaml_settings_are_passed_to_create(
+            self, tmp_path: Path, monkeypatch, creation_stub):
+        """The environment and volumes declared in config.yaml reach
+        containers.create()."""
+        config_dir = tmp_path / ".devisolator"
+        config_dir.mkdir()
+        (config_dir / "Containerfile").write_text("FROM ubuntu:26.04\n")
+        (config_dir / "config.yaml").write_text(
+            "environment:\n  - DEV_ISOLATOR_TEST_VAR\n"
+            "volumes:\n  - /host/data:/container/data:ro\n")
+        monkeypatch.setenv("DEV_ISOLATOR_TEST_VAR", "test-value")
+
+        containers = FakeContainers()
+        monkeypatch.setattr(
+            "dev_isolator.container_manager.podman.PodmanClient",
+            lambda: FakeRunClient(FakeRunImages(), containers))
+        monkeypatch.setattr(
+            "dev_isolator.container_manager.subprocess.call",
+            lambda cmd: 0)
+
+        definition = ContainerDefintion(
+            config_dir / "Containerfile", tmp_path)
+        definition.run_container()
+
+        assert containers.created["environment"] == {
+            "DEV_ISOLATOR_TEST_VAR": "test-value"}
+        assert containers.created["volumes"] == {
+            "/host/data": {"bind": "/container/data", "mode": "ro"},
+            os.getcwd(): {"bind": "/workspace", "mode": "rw"}}
+
+    def test_addon_settings_override_config_yaml_settings(
+            self, tmp_path: Path, monkeypatch, creation_stub):
+        """Addon settings override those from config.yaml, the
+        workspace mount always wins."""
+        config_dir = tmp_path / ".devisolator"
+        config_dir.mkdir()
+        (config_dir / "Containerfile").write_text("FROM ubuntu:26.04\n")
+        (config_dir / "addon.mine").write_text("RUN echo custom\n")
+        (config_dir / "config.yaml").write_text(
+            "addons_enabled:\n  - mine\n"
+            "environment:\n  - DEV_ISOLATOR_TEST_VAR\n"
+            "volumes:\n  - /host/data:/from/config:rw\n")
+        (config_dir / "config.mine.yaml").write_text(
+            "volumes:\n  - /host/data:/from/addon:ro\n")
+        monkeypatch.setenv("DEV_ISOLATOR_TEST_VAR", "config-value")
+
+        containers = FakeContainers()
+        monkeypatch.setattr(
+            "dev_isolator.container_manager.podman.PodmanClient",
+            lambda: FakeRunClient(FakeRunImages(), containers))
+        monkeypatch.setattr(
+            "dev_isolator.container_manager.subprocess.call",
+            lambda cmd: 0)
+
+        definition = ContainerDefintion(
+            config_dir / "Containerfile", tmp_path)
+        definition.run_container()
+
+        assert containers.created["environment"] == {
+            "DEV_ISOLATOR_TEST_VAR": "config-value"}
+        assert containers.created["volumes"] == {
+            "/host/data": {"bind": "/from/addon", "mode": "ro"},
             os.getcwd(): {"bind": "/workspace", "mode": "rw"}}
