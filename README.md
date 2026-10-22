@@ -99,6 +99,7 @@ Options:
 | Option | Description |
 |---|---|
 | `--nocache`, `-n` | Pass `--nocache` to `podman build`, i.e. ignore the build cache. |
+| `--keep-container-file`, `-k` | On a build error, keep the generated (merged) Containerfile in the current directory (`Containerfile-fail-*`) for inspection instead of removing it. |
 
 ### `shell`
 
@@ -291,6 +292,118 @@ dev-isolator                # open a bash inside the container
 dev-isolator run make test  # or run a single command
 dev-isolator clean          # remove the image again
 ```
+
+## Examples: a `.devisolator` folder
+
+This section walks through a complete `.devisolator` folder for a small
+Python project and shows what each file type looks like. Put the folder
+in the root of your project:
+
+```
+my-project/
+├── .devisolator/
+│   ├── Containerfile        # base image + system packages
+│   ├── config.yaml          # which addons to enable + container settings
+│   ├── addon.python.jinja2  # (optional) extra image steps for an addon
+│   └── config.python.yaml   # (optional) runtime settings for that addon
+└── README.md
+```
+
+### `Containerfile`
+
+The base image and any system-level setup. The base image must be
+Debian-style, because dev-isolator appends a block that creates a user
+with your host UID/GID (so `useradd` and `getent` must exist). The build
+always ends with `USER <you>` and `WORKDIR /workspace`.
+
+```dockerfile
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install --yes \
+        build-essential python3 python3-pip python3-venv
+```
+
+### `config.yaml`
+
+Selects the addons to append and, optionally, passes environment
+variables and extra volume mounts to the container:
+
+```yaml
+addons_enabled:
+  - python
+  - opencode
+environment:
+  - OMP_NUM_THREADS
+  - PYTHONDONTWRITEBYTECODE
+volumes:
+  - /tmp:/host_tmp
+```
+
+- `addons_enabled` lists the addon names to append (see
+  `addon.<name>.jinja2` below and the bundled `opencode`/`claude`
+  addons). Without this file, every `addon.*.jinja2` is enabled.
+- `environment` names host variables to forward into the container
+  (those that are unset on the host are skipped).
+- `volumes` lists `host:container[:mode]` mounts; `mode` defaults to
+  `rw`. The project directory is always bind-mounted at `/workspace`
+  and takes precedence over anything declared here.
+
+### `addon.<name>.jinja2`
+
+A jinja2 template with additional Containerfile instructions for the
+addon `<name>`. It is rendered and appended to the `Containerfile` at
+build time. These variables are available:
+
+- `uid`, `gid` — your host UID and GID
+- `username` — a user name usable for those ids
+- `home_dir` — your host home directory
+
+For example, `addon.python.jinja2` installs a tool as root and then
+drops back to your user:
+
+```dockerfile
+USER root
+RUN apt-get install --yes --no-install-recommends poetry && \
+    rm -rf /var/lib/apt/lists/*
+USER {{ username }}
+ENV PATH="{{ home_dir }}/.local/bin:${PATH}"
+```
+
+Every `addon.*.jinja2` in `.devisolator/` is collected after the
+bundled ones (sorted by file name); duplicates are removed.
+
+### `config.<addon>.yaml`
+
+Runtime settings an addon (or the project itself, via `config.yaml`)
+requests for the container. It has the same `environment`/`volumes`
+shape:
+
+```yaml
+environment:
+  - PIP_CACHE_DIR
+volumes:
+  - ${HOME}/.cache/python:${HOME}/.cache/python:ro
+  - ENV[PIP_CACHE_DIR]:ENV[PIP_CACHE_DIR]
+```
+
+Volume specs are expanded *before* they are parsed:
+
+1. `ENV[VAR]` is replaced by the value of the environment variable
+   `VAR`. This happens first, so the value may itself contain the `:`
+   separators of the spec; if the variable is unset the whole spec is
+   skipped.
+2. `~` and `${VAR}` are then expanded (unset names become an empty
+   string).
+
+### What gets built
+
+For the folder above, dev-isolator merges — in order — your
+`Containerfile`, the automatically appended host-user block, and the
+enabled addon templates (`addon.python.jinja2`, then the bundled
+`addon.opencode.jinja2`), and finishes with `USER <you>` and
+`WORKDIR /workspace`. Building in `my-project/` produces the image
+`dev-isolator:my-project`; running `dev-isolator` then mounts
+`my-project/` at `/workspace` inside a container running as your own
+UID/GID, so files you create stay owned by you.
 
 ## Contributing
 
