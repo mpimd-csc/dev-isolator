@@ -113,8 +113,15 @@ The dev-isolator command can also be abbreviated by `di`
             action="store_true",
             help="Pass the --nocache option to podman build."
             )
+    build_parser.add_argument(
+            "-k",
+            "--keep-container-file",
+            dest="keep_container_file",
+            action="store_true",
+            help="Keep the generated Containerfile in case of an error."
+            )
 
-    shell_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "shell",
         help="Open a terminal/shell inside the container "
              "isolator-<slug_of_the_current_path>.",
@@ -239,7 +246,9 @@ def build(args) -> int:
         definition = ContainerDefintion()
 
     try:
-        definition.build_container(nocache=args.nocache)
+        definition.build_container(nocache=args.nocache,
+                                   keep_container_file=args.keep_container_file
+                                   )
     except Exception as e:
         print(f"An error occured: {e}", file=sys.stderr)
         return 1

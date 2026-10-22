@@ -13,10 +13,9 @@ import pwd
 import re
 import subprocess
 import sys
-import tarfile
 import time
 import json
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, mkstemp
 from functools import lru_cache
 
 import podman.errors
@@ -239,7 +238,17 @@ class ContainerDefintion:
         except podman.errors.APIError as e:
             raise RuntimeError(f"Failed to remove image {tag}: {e}") from e
 
-    def build_container(self, nocache=False):
+    def _safe_container_file(self):
+        merged_content = self.merged_container_file_content()
+        with NamedTemporaryFile("w", prefix="Containerfile-fail-",
+                                dir=os.getcwd(),
+                                delete=False,
+                                delete_on_close=False) as fp:
+            filename = fp.name
+            fp.write(merged_content)
+        dprint(Verbosity.ERROR, f"Kept generated Containerfile as {filename}")
+
+    def build_container(self, nocache=False, keep_container_file=False):
         """Build the image defined by this container definition.
 
         If an image with the same tag (see :meth:`image_name`) existed
@@ -286,8 +295,12 @@ class ContainerDefintion:
                     self._remove_superseded_image(
                         client, tag, previous_id, image.id)
         except podman.errors.BuildError as e:
+            if keep_container_file:
+                self._safe_container_file()
             raise RuntimeError(f"Failed to build image {tag}: {e}") from e
         except podman.errors.APIError as e:
+            if keep_container_file:
+                self._safe_container_file()
             raise RuntimeError(f"Podman API error while building {tag}: {e}") \
                 from e
 
