@@ -16,12 +16,24 @@ Requirements:
 - Linux with a working podman installation (the podman socket/service
   must be reachable through the `podman` Python bindings).
 - Python 3.10 or later.
-- Python packages: `podman`, `pyyaml`, `jinja2` (installed
-  automatically; `pytest` is installed too and used by the test suite).
+- Python dependecies:
+  - [`podman`](https://podman-py.readthedocs.io/en/latest/)
+  - [`pyyaml`](https://pypi.org/project/PyYAML/)
+  - [`jinja2`](https://jinja.palletsprojects.com/en/stable/)
+  - [`pytest`](https://docs.pytest.org/en/stable/), only for the test-suite 
 
 Both commands `dev-isolator` and `di` (a short alias) start the tool.
 
 ## Installation
+
+Before using `dev-isolator` [podman](https://podman.io/) must be enabled as 
+user service. Typically, this is done by executing 
+```shell
+systemctl --user enable --now podman.service
+```
+in a terminal. Afterwards, one can proceed with the installation of 
+`dev-isolator`.
+
 
 Install from PyPI:
 
@@ -42,6 +54,7 @@ pytest
 ```
 
 ## Usage
+
 
 ### Command line overview
 
@@ -235,9 +248,14 @@ Configuration resolution rules:
 - When the image is built, a host user block is appended: a user with
   the same UID, GID and username as the invoking host user is created
   (removing any pre-existing user/group occupying those properties)
-  and made the image's default user. The base image must be
-  Debian-style (`useradd` and `getent` must exist). The build ends
+  and made the image's default user. 
   with `WORKDIR /workspace`.
+
+#### Tested Base Images 
+
+Since `dev-isolator` has to integrate with the container, only `apt` and `dnf`
+based Linux distributions like Ubuntu, Debian, Fedora, AlmaLinux, or RockyLinux 
+are supported in the container. 
 
 #### Addon configuration (`config.<addon>.yaml`)
 
