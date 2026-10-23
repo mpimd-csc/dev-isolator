@@ -253,12 +253,11 @@ def shell(args) -> int:
     Returns the exit status of the container, or 1 on error.
     """
     config = config_path(".devisolator")
-    context_dir = config.parent
-    container_file = config / "Containerfile"
-
-    dprint(Verbosity.INFO, f"Found .devisolator directory in {config}")
-
     if config:
+        context_dir = config.parent
+        container_file = config / "Containerfile"
+        dprint(Verbosity.INFO, f"Found .devisolator directory in {config}")
+
         definition = ContainerDefintion(container_file, context_dir)
     else:
         definition = ContainerDefintion()

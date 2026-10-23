@@ -1,0 +1,9 @@
+# MANIFEST.in - files to include in the source distribution (sdist).
+#
+# setuptools always adds the package code, README.md (via [project.readme])
+# and LICENSE. This file additionally bundles the remaining project
+# documentation (Markdown) and the citation metadata (CFF) so the sdist is
+# self-contained for archiving and reproduction.
+include *.md
+include *.cff
+include build-wheels.sh
