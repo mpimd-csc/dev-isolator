@@ -414,7 +414,8 @@ def main_intern() -> int:
     if os.getenv("DEVISOLATOR_CONFIG"):
         args.config = os.getenv("DEVISOLATOR_CONFIG")
 
-    context_dir, container_file, config_file, addon_search_path = get_path(args.config)
+    context_dir, container_file, config_file, addon_search_path = get_path(
+        args.config)
 
     definition = ContainerDefintion(context_dir, container_file, config_file,
                                     addon_search_path, args.config)
