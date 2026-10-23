@@ -25,7 +25,8 @@ def definition(tmp_path: Path) -> ContainerDefintion:
     container_file.write_text("FROM ubuntu:26.04\n")
     (config_dir / "addon.mine").write_text("RUN echo custom\n")
     (config_dir / "config.yaml").write_text("addons_enabled:\n  - mine\n")
-    return ContainerDefintion(container_file, tmp_path)
+    return ContainerDefintion(tmp_path, container_file,
+                              config_dir / "config.yaml", [config_dir])
 
 
 class TestAddonConfigFile:
@@ -404,7 +405,8 @@ class TestRunContainerSettings:
             lambda cmd: 0)
 
         definition = ContainerDefintion(
-            config_dir / "Containerfile", tmp_path)
+            tmp_path, config_dir / "Containerfile",
+            config_dir / "config.yaml", [config_dir])
         definition.run_container()
 
         assert containers.created["environment"] == {
@@ -432,7 +434,8 @@ class TestRunContainerSettings:
             lambda cmd: 0)
 
         definition = ContainerDefintion(
-            config_dir / "Containerfile", tmp_path)
+            tmp_path, config_dir / "Containerfile",
+            config_dir / "config.yaml", [config_dir])
         definition.run_container()
 
         assert containers.created["environment"] == {}
@@ -460,7 +463,8 @@ class TestRunContainerSettings:
             lambda cmd: 0)
 
         definition = ContainerDefintion(
-            config_dir / "Containerfile", tmp_path)
+            tmp_path, config_dir / "Containerfile",
+            config_dir / "config.yaml", [config_dir])
         definition.run_container()
 
         assert containers.created["environment"] == {
@@ -494,7 +498,8 @@ class TestRunContainerSettings:
             lambda cmd: 0)
 
         definition = ContainerDefintion(
-            config_dir / "Containerfile", tmp_path)
+            tmp_path, config_dir / "Containerfile",
+            config_dir / "config.yaml", [config_dir])
         definition.run_container()
 
         assert containers.created["environment"] == {

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from dev_isolator import utils
-from dev_isolator.utils import Verbosity, config_path, dprint, get_verbosity, set_verbosity
+from dev_isolator.utils import Verbosity, dprint, get_verbosity, search_path, set_verbosity
 
 
 @pytest.fixture(autouse=True)
@@ -117,7 +117,7 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 class TestConfigPath:
-    """Tests for config_path"""
+    """Tests for search_path"""
 
     def test_found_in_current_directory(self, tmp_path: Path,
                                         fake_home: Path,
@@ -127,7 +127,7 @@ class TestConfigPath:
         marker.touch()
         monkeypatch.chdir(tmp_path)
 
-        assert config_path("config.yaml") == marker
+        assert search_path("config.yaml") == marker
 
     def test_found_above_current_directory(self, tmp_path: Path,
                                            fake_home: Path,
@@ -141,7 +141,7 @@ class TestConfigPath:
         marker.touch()
         monkeypatch.chdir(deep)
 
-        assert config_path(".devisolator") == marker
+        assert search_path(".devisolator") == marker
 
     def test_found_in_home(self, tmp_path: Path, fake_home: Path,
                            monkeypatch: pytest.MonkeyPatch):
@@ -153,7 +153,7 @@ class TestConfigPath:
         marker.touch()
         monkeypatch.chdir(deep)
 
-        assert config_path("settings.toml") == marker
+        assert search_path("settings.toml") == marker
 
     def test_nearest_match_wins(self, tmp_path: Path, fake_home: Path,
                                 monkeypatch: pytest.MonkeyPatch):
@@ -167,7 +167,7 @@ class TestConfigPath:
         (fake_home / "marker").touch()
         monkeypatch.chdir(deep)
 
-        assert config_path("marker") == deep / "marker"
+        assert search_path("marker") == deep / "marker"
 
     def test_returns_none_when_not_found_in_home_tree(
             self, tmp_path: Path, fake_home: Path,
@@ -177,7 +177,7 @@ class TestConfigPath:
         deep.mkdir(parents=True)
         monkeypatch.chdir(deep)
 
-        assert config_path("missing.txt") is None
+        assert search_path("missing.txt") is None
 
     def test_works_outside_home(self, tmp_path: Path, fake_home: Path,
                                 monkeypatch: pytest.MonkeyPatch):
@@ -191,7 +191,7 @@ class TestConfigPath:
         marker.touch()
         monkeypatch.chdir(deep)
 
-        assert config_path("marker.conf") == marker
+        assert search_path("marker.conf") == marker
 
     def test_returns_none_outside_home_without_match(
             self, tmp_path: Path, fake_home: Path,
@@ -203,4 +203,4 @@ class TestConfigPath:
         deep.mkdir(parents=True)
         monkeypatch.chdir(deep)
 
-        assert config_path("missing.conf") is None
+        assert search_path("missing.conf") is None

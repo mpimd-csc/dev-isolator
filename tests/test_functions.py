@@ -9,9 +9,14 @@ from pathlib import Path
 
 import podman.errors
 import pytest
+import dev_isolator.container_manager as container_manager
 from dev_isolator.container_manager import ContainerDefintion, BUNDLE_DIR
 from dev_isolator.main import DEFAULT_SHELL, create_parser, parse_args
 from dev_isolator.utils import Verbosity
+
+# The directory bundled with dev-isolator (Containerfile, addons,
+# config.yaml).
+BUNDLED_DIR = Path(container_manager.__file__).resolve().parent / BUNDLE_DIR
 
 
 class TestMergedContainerfile:
@@ -23,7 +28,9 @@ class TestMergedContainerfile:
         container_file = tmp_path / "Containerfile"
         container_file.write_text("FROM ubuntu:26.04\n")
 
-        definition = ContainerDefintion(container_file, tmp_path)
+        definition = ContainerDefintion(
+            tmp_path, container_file, BUNDLED_DIR / "config.yaml",
+            [BUNDLED_DIR])
         merged = definition.merged_container_file_content()
 
         assert merged.startswith("FROM ubuntu:26.04\n")
@@ -43,7 +50,9 @@ class TestMergedContainerfile:
         container_file = tmp_path / "Containerfile"
         container_file.write_text("FROM ubuntu:26.04\n")
 
-        definition = ContainerDefintion(container_file, tmp_path)
+        definition = ContainerDefintion(
+            tmp_path, container_file, BUNDLED_DIR / "config.yaml",
+            [BUNDLED_DIR])
         merged = definition.merged_container_file_content()
 
         uid = os.getuid()
@@ -74,7 +83,9 @@ class TestMergedContainerfile:
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text("addons_enabled:\n  - mine\n")
 
-        definition = ContainerDefintion(container_file, tmp_path)
+        definition = ContainerDefintion(
+            tmp_path, container_file, config_dir / "config.yaml",
+            [config_dir, BUNDLED_DIR])
         merged = definition.merged_container_file_content()
 
         names = [a.name for a in definition.addons.addon_files()]
@@ -91,7 +102,11 @@ class TestMergedContainerfile:
         container_file.write_text("FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
 
-        definition = ContainerDefintion(container_file, tmp_path)
+        # Without a project config.yaml the bundled one is active,
+        # and it does not enable the "mine" addon.
+        definition = ContainerDefintion(
+            tmp_path, container_file, BUNDLED_DIR / "config.yaml",
+            [config_dir, BUNDLED_DIR])
         merged = definition.merged_container_file_content()
 
         names = [a.name for a in definition.addons.addon_files()]
@@ -108,13 +123,16 @@ class TestMergedContainerfile:
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text("addons_enabled:\n  - mine\n")
 
-        definition = ContainerDefintion(container_file, tmp_path)
+        definition = ContainerDefintion(
+            tmp_path, container_file, config_dir / "config.yaml",
+            [config_dir, BUNDLED_DIR])
         enabled = definition.addons.enabled_addons()
 
         # Only the project config is honored; the bundled list is
         # ignored entirely.
         assert enabled == {"mine"}
-        assert definition.addons.config_file().name == "config.yaml"
+        assert definition.addons.config_file \
+            == (config_dir / "config.yaml").resolve()
         names = [a.name for a in definition.addons.addon_files()]
         assert "addon.mine" in names
         assert "addon.opencode.jinja2" not in names
@@ -127,16 +145,15 @@ class TestMergedContainerfile:
         container_file = config_dir / "Containerfile"
         container_file.write_text("FROM ubuntu:26.04\n")
 
-        definition = ContainerDefintion(container_file, tmp_path)
+        definition = ContainerDefintion(
+            tmp_path, container_file, BUNDLED_DIR / "config.yaml",
+            [config_dir, BUNDLED_DIR])
 
-        assert definition.addons.config_file() \
-            == (Path(__import__("dev_isolator.container_manager",
-                                fromlist=["__file__"]).__file__).parent
-                / BUNDLE_DIR / "config.yaml").resolve()
+        assert definition.addons.config_file \
+            == (BUNDLED_DIR / "config.yaml").resolve()
         assert definition.addons.enabled_addons() == {"opencode", "claude"}
 
-    def test_no_config_yaml_enables_everything(self, tmp_path: Path,
-                                               monkeypatch):
+    def test_no_config_yaml_enables_everything(self, tmp_path: Path):
         """Without any config.yaml file every addon.* file is used."""
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
@@ -144,16 +161,10 @@ class TestMergedContainerfile:
         container_file.write_text("FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
 
-        # Hide every config.yaml file to simulate "no config at all".
-        real_is_file = Path.is_file
-        monkeypatch.setattr(
-            Path, "is_file",
-            lambda self: False if self.name == "config.yaml"
-            else real_is_file(self))
+        definition = ContainerDefintion(
+            tmp_path, container_file, None, [config_dir, BUNDLED_DIR])
 
-        definition = ContainerDefintion(container_file, tmp_path)
-
-        assert not definition.addons.config_file()
+        assert not definition.addons.config_file
         assert definition.addons.enabled_addons() is None
         names = [a.name for a in definition.addons.addon_files()]
         assert "addon.mine" in names
@@ -161,11 +172,12 @@ class TestMergedContainerfile:
     def test_no_duplicate_addons(self, tmp_path: Path):
         """When the build context is the bundled directory
         itself, each addon is only appended once."""
-        bundled = Path(__import__("dev_isolator.container_manager",
-                                  fromlist=["__file__"]).__file__).parent \
+        bundled = Path(container_manager.__file__).resolve().parent \
             / BUNDLE_DIR
 
-        definition = ContainerDefintion(bundled / "Containerfile", bundled)
+        definition = ContainerDefintion(
+            bundled, bundled / "Containerfile", bundled / "config.yaml",
+            [bundled])
         addons = definition.addons.addon_files()
 
         assert len(addons) == len({a for a in addons})
@@ -186,7 +198,9 @@ class TestMergedContainerfile:
         (config_dir / "config.yaml").write_text(
             "addons_enabled:\n  - rendered\n")
 
-        definition = ContainerDefintion(container_file, tmp_path)
+        definition = ContainerDefintion(
+            tmp_path, container_file, config_dir / "config.yaml",
+            [config_dir])
         merged = definition.merged_container_file_content()
 
         username = definition.host_username()
@@ -274,7 +288,9 @@ class TestBuildTraceOutput:
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text(
             "addons_enabled:\n  - mine\n")
-        return ContainerDefintion(container_file, tmp_path)
+        return ContainerDefintion(tmp_path, container_file,
+                                  config_dir / "config.yaml",
+                                  [config_dir])
 
     @pytest.fixture
     def patched_images(self, monkeypatch):
@@ -634,7 +650,8 @@ class TestRunContainerCommand:
         config_dir.mkdir()
         container_file = config_dir / "Containerfile"
         container_file.write_text("FROM ubuntu:26.04\n")
-        return ContainerDefintion(container_file, tmp_path)
+        return ContainerDefintion(tmp_path, container_file, None,
+                                  [config_dir])
 
     @pytest.fixture
     def exec_cmd(self, monkeypatch):
@@ -710,7 +727,7 @@ class TestMainRunDispatch:
 
         called = {}
 
-        def fake_shell(args):
+        def fake_shell(definition, args):
             called["shell"] = args.shell
             return 0
 
@@ -729,7 +746,7 @@ class TestMainRunDispatch:
 
         called = {}
 
-        def fake_in_container(command, remainder):
+        def fake_in_container(definition, command, remainder):
             called["call"] = (command, remainder)
             return 0
 

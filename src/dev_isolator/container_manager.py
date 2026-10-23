@@ -104,7 +104,7 @@ class ContainerDefintion:
         """
         self.context_dir = Path(context_dir)
         self.container_file = Path(container_file)
-        self.config_file = Path(config_file)
+        self.config_file = Path(config_file) if config_file else None
         self.addons_search_path = addon_search_path
         if tag:
             self.tag = tag
