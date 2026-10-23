@@ -4,7 +4,7 @@ dev-isolator manages a per-project, podman based development
 environment.  For every project that contains a ``.devisolator``
 directory (holding a ``Containerfile`` and optional addon
 configuration) it builds an image named
-``dev-isolator:<slug_of_the_project_path>`` and runs commands inside a
+``dev-isolator:<slug_of_the_project_path>--<tag>`` and runs commands inside a
 container created from it, with the project directory mounted at
 ``/workspace``.  This keeps build tools, caches and dependencies isolated
 from the host while the sources stay in place.
@@ -144,7 +144,7 @@ The dev-isolator command can also be abbreviated by `di`
     subparsers.add_parser(
         "shell",
         help="Open a terminal/shell inside the container "
-             "dev-isolator-<slug_of_the_current_path>.",
+             "dev-isolator-<slug_of_the_current_path>--<tag>.",
     )
 
     clean_parser = subparsers.add_parser(
@@ -172,7 +172,7 @@ The dev-isolator command can also be abbreviated by `di`
         "opencode",
         add_help=False,
         help="Run opencode inside the container "
-             "dev-isolator-<slug_of_the_current_path>, "
+             "dev-isolator-<slug_of_the_current_path>--<tag>, "
              "passing all following arguments to it "
              "(for example ``opencode --port 4096``).",
     )
@@ -181,7 +181,7 @@ The dev-isolator command can also be abbreviated by `di`
         "claude",
         add_help=False,
         help="Run claude inside the container "
-             "dev-isolator-<slug_of_the_current_path>, "
+             "dev-isolator-<slug_of_the_current_path>--<tag>, "
              "passing all following arguments to it "
              "(for example ``claude --model xyz``).",
     )
@@ -403,7 +403,16 @@ def get_path(config):
 
 
 def main() -> int:
-    return main_intern()
+    """Main CLI entry point.
+
+    Parse the command line with ``parse_args``, apply the requested
+    verbosity and dispatch to the handler of the selected sub command.
+    Without an explicit subcommand, ``shell`` is executed with the
+    default shell.
+
+    Any unhandled exception is reported as an error message and turned
+    into the exit code 255.
+    """
     try:
         ret_code = main_intern()
     except Exception as e:
@@ -448,7 +457,7 @@ def main_intern() -> int:
             return in_container_command(definition, args.run_args[0],
                                         args.run_args[1:])
         # Without a command, behave like ``shell``.
-        return shell(definition.args)
+        return shell(definition, args)
     return 0
 
 

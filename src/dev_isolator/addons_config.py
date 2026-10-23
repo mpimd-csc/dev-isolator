@@ -293,7 +293,7 @@ class AddonsConfiguration:
                 enabled = set(names)
                 dprint(Verbosity.INFO,
                        f"Addons enabled in {self.config_file}: "
-                       " {sorted(names)}")
+                       f"{sorted(names)}")
             self._enabled_addons = enabled
         return self._enabled_addons
 

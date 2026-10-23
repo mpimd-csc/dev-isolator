@@ -5,8 +5,10 @@
 
 For every project containing a `.devisolator` directory (holding a
 `Containerfile` and optional addon configuration) it builds a container
-image named `dev-isolator-<slug_of_the_project_path>` and runs commands
-inside a container created from that image. The current working
+image named `dev-isolator:<slug_of_the_project_path>--<tag>` (the
+default tag is `default`) and runs commands inside a container named
+`dev-isolator-<slug_of_the_project_path>--<tag>`, created from that
+image. The current working
 directory is mounted into the container at `/workspace`. This keeps
 build tools, caches and dependencies isolated from the host, while the
 sources stay in place.
@@ -20,7 +22,7 @@ Requirements:
   - [`podman`](https://podman-py.readthedocs.io/en/latest/)
   - [`pyyaml`](https://pypi.org/project/PyYAML/)
   - [`jinja2`](https://jinja.palletsprojects.com/en/stable/)
-  - [`pytest`](https://docs.pytest.org/en/stable/), only for the test-suite 
+  - [`pytest`](https://docs.pytest.org/en/stable/), only used by the test-suite (but currently installed with dev-isolator as a regular dependency)
 
 Both commands `dev-isolator` and `di` (a short alias) start the tool.
 
@@ -59,7 +61,7 @@ pytest
 ### Command line overview
 
 ```
-dev-isolator [--verbose/-v]... [--shell/-s <shell>] <subcommand> [arguments]
+dev-isolator [--verbose/-v]... [--shell/-s <shell>] [--config/-c <name>] <subcommand> [arguments]
 ```
 
 Global options:
@@ -67,7 +69,8 @@ Global options:
 | Option | Description |
 |---|---|
 | `--verbose`, `-v` | Increase verbosity. Repeat for more details: `-v` (info), `-vv` (debug), `-vvv` (trace, e.g. prints the merged Containerfile and build logs). |
-| `--shell`, `-s` | Shell to start inside the container. Default: `bash`. Applies to `shell` and to the interactive session started by `run`/`opencode`/`claude` when no command is given. |
+| `--shell`, `-s` | Shell to start inside the container. Default: `bash`. Applies to `shell` and to an interactive session started by `run` when no command is given. |
+| `--config`, `-c` | Name of a sub-configuration: a subdirectory of `.devisolator/` holding its own `Containerfile` and `config.yaml` (see [Discovery of the project directory](#discovery-of-the-project-directory)). Can also be set with the `DEVISOLATOR_CONFIG` environment variable. |
 
 Subcommands:
 
@@ -101,7 +104,7 @@ Builds the image of the current project:
   the build context (the directory containing the `.devisolator`
   directory).
 - The base image given in the `Containerfile` is pulled fresh, the
-  build is tagged `dev-isolator:<slug_of_the_project_path>` and
+  build is tagged `dev-isolator:<slug_of_the_project_path>--<tag>` and
   intermediate containers are removed afterwards.
 - If a previous image carried the same tag but the build produced a
   different image id, the superseded image is removed so no dangling
@@ -126,8 +129,8 @@ Opens an interactive shell inside the container:
 
 1. The image is always built first (as with `build`, without
    `--nocache`), rebuilding is cheap thanks to the build cache.
-2. A container named `dev-isolator-<slug_of_the_project_path>` is
-   created (or reused if one created earlier exists) and started. It
+2. A container named `dev-isolator-<slug_of_the_project_path>--<tag>`
+   is created and started. It
    runs `sleep infinity` as its entrypoint, so it stays alive for the
    session. The container runs with `--userns=keep-id`, i.e. the same
    UID/GID as the host user, so files created in the `/workspace` bind
@@ -168,10 +171,13 @@ removed afterwards.
 ```bash
 dev-isolator clean
 dev-isolator clean --all
+dev-isolator clean --local
 ```
 
-Removes the image of the current project (`clean`) or every image
-tagged `dev-isolator:*` (`clean --all`).
+Removes the image of the current project (`clean`), every image whose
+repository is `dev-isolator` (`clean --all`), or every dev-isolator
+image of the current project, including all its tag variants
+(`clean --local`).
 
 Before removal, all containers based on the image(s) are stopped
 (after 10 seconds they are killed) and removed. With `--verbose` the
@@ -182,6 +188,7 @@ Options:
 | Option | Description |
 |---|---|
 | `--all`, `-a` | Remove all dev-isolator images instead of only the current one. |
+| `--local`, `-l` | Remove every dev-isolator image of the current project (all tag variants) instead of only the current one. Mutually exclusive with `--all`. |
 
 ### Discovery of the project directory
 
@@ -192,6 +199,19 @@ working directories outside the home tree). The first hit wins.
 
 If no `.devisolator` directory is found, the `Containerfile` and
 configuration bundled with dev-isolator are used.
+
+#### `--config`: selecting a sub-configuration
+
+With `--config <name>` (or the environment variable
+`DEVISOLATOR_CONFIG`), a subdirectory `<name>` of the `.devisolator`
+directory is used as a sub-configuration instead of the project's
+default one. The `Containerfile`, the `config.yaml` and the
+`addon.*.jinja2` templates are searched in `<name>/` first, then in
+`.devisolator/` itself, and finally fall back to the bundled defaults.
+If the named subdirectory does not exist, dev-isolator aborts with an
+error. Sub-configurations allow switching between several environments
+of one project (for example different base images) without touching
+the default settings.
 
 Hotkeys: none. Detach from an interactive session with Ctrl-D or
 `exit` (the detach keys are empty).
@@ -273,16 +293,18 @@ volumes:
   the host and passed into the container. Variables which are not set
   on the host are skipped with a message.
 - `volumes` lists `host:container[:mode]` specs. The mode defaults to
-  `rw` when omitted (`ro` mounts read-only). Each spec may contain
-  `ENV[VAR]`, `~` and `${VAR}` references. They are expanded in the
-  following order, before the spec is parsed:
+  `rw` when omitted (`ro` mounts read-only). The spec is split on `:`
+  into its host path, container path and (optional) mode parts, and
+  each part is then expanded separately:
 
   1. `ENV[VAR]` is replaced by the value of the environment variable
-     `VAR`. This happens first, so the value may itself contain the
-     `:` separators of the spec. If the variable is not set, the
-     whole spec is skipped with a message.
+     `VAR`. If `VAR` is not set, the whole spec is skipped with a
+     message.
   2. `~` is expanded to the home directory and `${VAR}` to the value
-     of `VAR`. Unset variables expand to an empty string.
+     of `VAR`; unset variables are left unchanged.
+
+  Messages about skipped entries are only shown at the highest
+  verbosity (`-vvv`).
 
 ### Bundled default configuration
 
@@ -305,7 +327,7 @@ RUN apt-get update && apt-get install --yes build-essential python3-pip python3-
 EOF
 echo "addons_enabled: [opencode]" > .devisolator/config.yaml
 
-dev-isolator build          # build dev-isolator:home-user-projects-my-project
+dev-isolator build          # build dev-isolator:home-user-projects-my-project--default
 dev-isolator                # open a bash inside the container
 dev-isolator run make test  # or run a single command
 dev-isolator clean          # remove the image again
@@ -330,8 +352,10 @@ my-project/
 ### `Containerfile`
 
 The base image and any system-level setup. The base image must be
-Debian-style, because dev-isolator appends a block that creates a user
-with your host UID/GID (so `useradd` and `getent` must exist). The build
+`apt`- or `dnf`-based (see
+[Tested Base Images](#tested-base-images)), because dev-isolator
+appends a block that creates a user with your host UID/GID (so
+`useradd` and `getent` must exist). The build
 always ends with `USER <you>` and `WORKDIR /workspace`.
 
 ```dockerfile
@@ -403,14 +427,13 @@ volumes:
   - ENV[PIP_CACHE_DIR]:ENV[PIP_CACHE_DIR]
 ```
 
-Volume specs are expanded *before* they are parsed:
+Each part of a volume spec (after the spec has been split on `:` into
+host path, container path and optional mode) is expanded as follows:
 
 1. `ENV[VAR]` is replaced by the value of the environment variable
-   `VAR`. This happens first, so the value may itself contain the `:`
-   separators of the spec; if the variable is unset the whole spec is
-   skipped.
-2. `~` and `${VAR}` are then expanded (unset names become an empty
-   string).
+   `VAR`; if the variable is unset the whole spec is skipped.
+2. `~` and `${VAR}` are then expanded; unset variables are left
+   unchanged.
 
 ### What gets built
 
@@ -419,7 +442,7 @@ For the folder above, dev-isolator merges — in order — your
 enabled addon templates (`addon.python.jinja2`, then the bundled
 `addon.opencode.jinja2`), and finishes with `USER <you>` and
 `WORKDIR /workspace`. Building in `my-project/` produces the image
-`dev-isolator:my-project`; running `dev-isolator` then mounts
+`dev-isolator:my-project--default`; running `dev-isolator` then mounts
 `my-project/` at `/workspace` inside a container running as your own
 UID/GID, so files you create stay owned by you.
 
