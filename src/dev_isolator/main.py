@@ -433,8 +433,10 @@ def main_intern() -> int:
 
     set_verbosity(Verbosity(args.verbose))
 
-    if os.getenv("DEVISOLATOR_CONFIG"):
+    if os.getenv("DEVISOLATOR_CONFIG") and not args.config:
         args.config = os.getenv("DEVISOLATOR_CONFIG")
+    if args.config == "default":
+        args.config = None
 
     context_dir, container_file, config_file, addon_search_path = get_path(
         args.config)

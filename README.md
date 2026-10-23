@@ -70,7 +70,7 @@ Global options:
 |---|---|
 | `--verbose`, `-v` | Increase verbosity. Repeat for more details: `-v` (info), `-vv` (debug), `-vvv` (trace, e.g. prints the merged Containerfile and build logs). |
 | `--shell`, `-s` | Shell to start inside the container. Default: `bash`. Applies to `shell` and to an interactive session started by `run` when no command is given. |
-| `--config`, `-c` | Name of a sub-configuration: a subdirectory of `.devisolator/` holding its own `Containerfile` and `config.yaml` (see [Discovery of the project directory](#discovery-of-the-project-directory)). Can also be set with the `DEVISOLATOR_CONFIG` environment variable. |
+| `--config`, `-c` | Name of a sub-configuration: a subdirectory of `.devisolator/` holding its own `Containerfile` and `config.yaml` (see [Sub-configurations (`--config`)](#sub-configurations---config)). An explicit `--config` takes precedence over the `DEVISOLATOR_CONFIG` environment variable. |
 
 Subcommands:
 
@@ -179,6 +179,12 @@ repository is `dev-isolator` (`clean --all`), or every dev-isolator
 image of the current project, including all its tag variants
 (`clean --local`).
 
+The image removed by `clean` is the one of the currently selected
+configuration: the project default (`dev-isolator:<slug>--default`),
+or — when [`--config`](#sub-configurations---config) is in effect — the
+selected sub-configuration's image. `clean --all` and `clean --local`
+remove images regardless of the selection.
+
 Before removal, all containers based on the image(s) are stopped
 (after 10 seconds they are killed) and removed. With `--verbose` the
 removed containers and images are printed.
@@ -202,19 +208,109 @@ configuration bundled with dev-isolator are used.
 
 #### `--config`: selecting a sub-configuration
 
-With `--config <name>` (or the environment variable
-`DEVISOLATOR_CONFIG`), a subdirectory `<name>` of the `.devisolator`
-directory is used as a sub-configuration instead of the project's
-default one. The `Containerfile`, the `config.yaml` and the
-`addon.*.jinja2` templates are searched in `<name>/` first, then in
-`.devisolator/` itself, and finally fall back to the bundled defaults.
-If the named subdirectory does not exist, dev-isolator aborts with an
-error. Sub-configurations allow switching between several environments
-of one project (for example different base images) without touching
-the default settings.
+Sub-configurations are selected from this project directory with
+`--config <name>` or the `DEVISOLATOR_CONFIG` environment variable;
+see [Sub-configurations (`--config`)](#sub-configurations---config).
 
 Hotkeys: none. Detach from an interactive session with Ctrl-D or
 `exit` (the detach keys are empty).
+
+### Sub-configurations (`--config`)
+
+Large projects often need more than one container environment, for
+example a slim default image for everyday work and a specialized one
+for GPU builds or documentation. Sub-configurations solve this without
+touching the default setup: each variant lives in its own subdirectory
+of `.devisolator/` and is selected per invocation (or per session)
+with `--config`.
+
+```bash
+dev-isolator --config gpu build    # build the "gpu" sub-configuration
+dev-isolator --config gpu shell    # open a shell in it
+```
+
+The same selection can be made through the environment variable
+`DEVISOLATOR_CONFIG`; it applies whenever `--config` is not given on
+the command line, so an explicit `--config` wins:
+
+```bash
+export DEVISOLATOR_CONFIG=gpu      # "gpu" for every call in this shell
+dev-isolator build                 # gpu, no --config needed
+dev-isolator --config base build   # an explicit --config overrides the variable
+```
+
+#### What a sub-configuration overrides
+
+For a sub-configuration `<name>`, the `Containerfile` and the
+`config.yaml` are looked up in the following order, and the *first
+found file wins* (the files are never merged):
+
+1. `.devisolator/<name>/` — the sub-configuration itself.
+2. `.devisolator/` — the project's default configuration.
+3. The files bundled with dev-isolator.
+
+Because the project defaults sit in the middle of this chain, a
+sub-configuration only *overrides* the files it actually contains: a
+`gpu/` directory holding just a `Containerfile` reuses the default
+`config.yaml`, and a `config.yaml` alone reuses the default
+`Containerfile`. If the named directory does not exist at all,
+dev-isolator aborts with an error (exit code 255) — sub-configurations
+are strictly project-local; the bundled defaults know no
+subdirectories.
+
+The name `default` is reserved: `--config default` (or
+`DEVISOLATOR_CONFIG=default`) explicitly selects the default
+configuration and is equivalent to omitting the option entirely,
+including the resulting `--default` image tag. A directory
+`.devisolator/default/`, should one exist, is never used as a
+sub-configuration.
+
+The enabled addon templates (`addon.*.jinja2`) are *collected* from
+all three places (each directory sorted by file name, duplicates
+removed), so they can be added per sub-configuration, per project or
+come from the bundle. Which of them are enabled — and which
+`environment`/`volumes` settings are applied — is decided by the
+single active `config.yaml` (first found), exactly as for the default
+configuration.
+
+One file type is deliberately *not* part of a sub-configuration: the
+per-addon runtime settings (`config.<addon>.yaml`) are always read
+from the project's `.devisolator/` directory (first found) or, when
+missing there, from the bundled ones. This keeps the runtime
+environment/volume wiring shared across all sub-configurations.
+
+#### Naming: every sub-configuration gets its own image
+
+The sub-configuration name doubles as the image tag. Building under
+`--config gpu` produces the image
+`dev-isolator:<slug_of_the_project>--gpu` (with the default
+configuration the tag is `default`), and the container is created as
+`dev-isolator-<slug_of_the_project>--gpu`. Several sub-configurations
+of a project can therefore be built and kept side by side, and
+`build`, `shell`, `run`, `opencode` and `claude` always act on the
+currently selected one. [`clean`](#clean) removes the selected
+configuration's image; use `clean --local` to drop every tag variant
+of the project at once.
+
+#### Example: a project with a `gpu` sub-configuration
+
+```
+my-project/
+└── .devisolator/
+    ├── Containerfile            # default base image (e.g. ubuntu:24.04)
+    ├── config.yaml              # default addons and settings
+    └── gpu/
+        ├── Containerfile        # e.g. a CUDA-enabled base image
+        └── config.yaml          # e.g. a different addon selection
+```
+
+```bash
+dev-isolator build                  # builds dev-isolator:<slug>--default
+dev-isolator --config gpu build     # builds dev-isolator:<slug>--gpu
+dev-isolator --config gpu shell     # shell inside the "gpu" container
+dev-isolator clean                  # removes the default image only
+dev-isolator clean --local          # removes default *and* gpu images
+```
 
 ### Project configuration
 
