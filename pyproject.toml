@@ -20,11 +20,9 @@ dependencies = [
 dev-isolator = "dev_isolator.main:main"
 di = "dev_isolator.main:main"
 
-
-
 [project.urls]
-Homepage = "https://gitlab.mpi-magdeburg.mpg.de/templates/dev-isolator"
-Issues = "https://gitlab.mpi-magdeburg.mpg.de/templates/dev-isolator/-/work_items"
+Homepage = "https://gitlab.mpi-magdeburg.mpg.de/software/dev-isolator"
+Issues = "https://gitlab.mpi-magdeburg.mpg.de/software/dev-isolator/-/work_items"
 
 [tool.setuptools.packages.find]
 where = ["src"]
