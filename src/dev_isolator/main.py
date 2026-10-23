@@ -449,7 +449,7 @@ def main_intern() -> int:
     if args.command == "shell":
         return shell(definition, args)
     if args.command == "build":
-        return build(definition)
+        return build(definition, args)
     if args.command == "opencode":
         return in_container_command(definition, "opencode", args.opencode_args)
     if args.command == "claude":
