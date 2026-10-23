@@ -374,6 +374,39 @@ class ContainerDefintion:
                    f"Mounting volumes {sorted(volumes)} "
                    "into the container")
 
+            # Replace any leftover container with the same name,
+            # so the new one can be created cleanly.
+            try:
+                old_container = client.containers.get(
+                    self.container_name())
+            except podman.errors.NotFound:
+                old_container = None
+            if old_container is not None:
+                old_name = old_container.name or old_container.id
+                dprint(Verbosity.INFO,
+                       f"Existing container {old_name} found, "
+                       "replacing it")
+                try:
+                    old_container.reload()
+                    if old_container.status == "running":
+                        try:
+                            old_container.stop(timeout=10)
+                            dprint(Verbosity.INFO,
+                                   f"Stopped container {old_name}")
+                        except podman.errors.APIError:
+                            old_container.kill()
+                            dprint(Verbosity.INFO,
+                                   f"Killed container {old_name}")
+                    old_container.remove()
+                    dprint(Verbosity.INFO,
+                           f"Removed container {old_name}")
+                except podman.errors.NotFound:
+                    dprint(Verbosity.INFO,
+                           f"Container {old_name} is already gone")
+                except podman.errors.APIError as e:
+                    print(f"Warning: could not replace container "
+                          f"{old_name}: {e}", file=sys.stderr)
+
             container = client.containers.create(
                 image,
                 name=self.container_name(),
