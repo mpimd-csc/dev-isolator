@@ -89,7 +89,8 @@ class ContainerDefintion:
     the current directory always takes precedence.
     """
 
-    def __init__(self, context_dir, container_file, config_file, tag=None):
+    def __init__(self, context_dir, container_file, config_file,
+                 addon_search_path, tag=None):
         """Set up the container definition.
 
         :param container_file: Optional path to a custom Containerfile.
@@ -104,18 +105,22 @@ class ContainerDefintion:
         self.context_dir = Path(context_dir)
         self.container_file = Path(container_file)
         self.config_file = Path(config_file)
+        self.addons_search_path = addon_search_path
         if tag:
             self.tag = tag
         else:
             self.tag = "default"
 
         self.bundled_dir = Path(__file__).parent / BUNDLE_DIR
-        self.addons = AddonsConfiguration(self.context_dir, self.bundled_dir)
+        self.addons = AddonsConfiguration(self.context_dir, self.bundled_dir,
+                                          self.config_file,
+                                          self.addons_search_path)
 
         dprint(Verbosity.DEBUG, f"Containerfile: {self.container_file}")
         dprint(Verbosity.DEBUG, f"Context dir:   {self.context_dir}")
         dprint(Verbosity.DEBUG, f"Config file:   {self.config_file}")
         dprint(Verbosity.DEBUG, f"Bundle dir:    {self.bundled_dir}")
+        dprint(Verbosity.DEBUG, f"Addon search:  {self.addons_search_path}")
 
     def merged_container_file_content(self) -> str:
         """Return the used Containerfile with all addons appended.
@@ -465,6 +470,28 @@ class ContainerDefintion:
                 return
             self._clean_images(client, [image])
 
+    def clean_local_images(self):
+        """Remove all dev-isolator images.
+
+        Stops (eventually killing) all containers based on any
+        dev-isolator image and removes them before the images are
+        removed.
+
+        When the global verbosity (see :func:`utils.set_verbosity`)
+        is at least ``Verbosity.INFO`` (for example ``--verbose``),
+        the removed containers and images are printed to stdout.
+        :raises RuntimeError: if podman refuses to remove the images.
+        """
+
+        with podman.PodmanClient() as client:
+            images = [image for image in client.images.list()
+                      if self._is_devisolator_local_image(image)]
+            if not images:
+                dprint(Verbosity.INFO,
+                       f"No {IMAGE_PREFIX} images found; nothing to clean")
+                return
+            self._clean_images(client, images)
+
     def clean_all_images(self):
         """Remove all dev-isolator images.
 
@@ -500,6 +527,28 @@ class ContainerDefintion:
             tag.partition("@")[0].rsplit("/", 1)[-1].rsplit(":", 1)[0]
             == IMAGE_PREFIX
             for tag in image.tags or [])
+
+    @staticmethod
+    def _is_devisolator_local_image(image) -> bool:
+        """Return whether ``image`` is a dev-isolator image of the
+           current project.
+
+        Like :meth:`_is_devisolator_image`, but limited to the current
+        working directory: an image counts when one of its tags names
+        the ``image_name_prefix()`` repository (``dev-isolator:<slug>``
+        for the current path), for example ``dev-isolator:my-project``
+        or ``dev-isolator:my-project--default`` (optionally prefixed by
+        a registry such as ``localhost/``). A different project whose
+        slug only shares a prefix (e.g. ``my-project-2``) does not
+        match.
+        """
+        prefix = f"{IMAGE_PREFIX}:{ContainerDefintion.current_path_slug()}"
+        return any(
+            repo_tag == prefix or repo_tag.startswith(prefix + "--")
+            for repo_tag in (
+                tag.partition("@")[0].rsplit("/", 1)[-1]
+                for tag in image.tags or [])
+        )
 
     @staticmethod
     def _clean_images(client, images):
@@ -550,6 +599,11 @@ class ContainerDefintion:
 
     def image_name(self) -> str:
         """Return the image name
+           ``dev-isolator:<slug_of_the_current_path>--<tag>``."""
+        return f"{IMAGE_PREFIX}:{self.current_path_slug()}--{self.tag}"
+
+    def image_name_prefix(self) -> str:
+        """Return the image name prefix
            ``dev-isolator:<slug_of_the_current_path>``."""
         return f"{IMAGE_PREFIX}:{self.current_path_slug()}"
 

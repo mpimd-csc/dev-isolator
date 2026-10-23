@@ -53,8 +53,13 @@ def dprint(level: Verbosity | int, *args, **kwargs) -> None:
 
     ``args`` and ``kwargs`` are forwarded to :func:`print`, so e.g.
     ``file=sys.stderr`` works as usual.
+
+    The message is prefixed with the level name in brackets, e.g.
+    ``[ERROR]``, ``[INFO]``, ``[DEBUG]`` or ``[TRACE]``.
     """
     if VERBOSITY >= level:
+        prefix = f"[{Verbosity(level).name}]"
+        args = (f"{prefix} {args[0]}", *args[1:]) if args else (prefix,)
         print(*args, **kwargs)
 
 

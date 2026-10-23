@@ -38,6 +38,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 import argparse
 import sys
+import os
 from textwrap import dedent
 from .container_manager import ContainerDefintion
 from .utils import set_verbosity, search_path, Verbosity, dprint
@@ -144,13 +145,21 @@ The dev-isolator command can also be abbreviated by `di`
         "clean",
         help="Remove the current dev-isolator image.",
     )
-    clean_parser.add_argument(
+    clean_group = clean_parser.add_mutually_exclusive_group()
+    clean_group.add_argument(
         "-a",
         "--all",
         dest="clean_all",
         action="store_true",
         help="Remove all dev-isolator images instead of only "
              "the current one.",
+    )
+    clean_group.add_argument(
+        "-l",
+        "--local",
+        dest="clean_local",
+        action="store_true",
+        help="Remove all images from the current .devisolator directory."
     )
 
     subparsers.add_parser(
@@ -287,7 +296,7 @@ def build(definition, args) -> int:
     return 0
 
 
-def clean(args) -> int:
+def clean(definition, args) -> int:
     """Handle the ``clean`` sub command.
 
     Remove the image of the current project, or every dev-isolator
@@ -296,9 +305,11 @@ def clean(args) -> int:
     """
     try:
         if args.clean_all:
-            ContainerDefintion().clean_all_images()
+            definition.clean_all_images()
+        elif args.clean_local:
+            definition.clean_local_images()
         else:
-            ContainerDefintion().clean_image()
+            definition.clean_image()
     except Exception as e:
         print(f"An error occured: {e}", file=sys.stderr)
         return 1
@@ -330,6 +341,13 @@ def get_path(config):
     else:
         context_dir = di_path.parent
 
+    if (config and not di_path) or (config and
+                                    not (di_path / config).is_dir()):
+
+        raise RuntimeError("--config or DEVISOLATOR_CONFIG specified but "
+                           f"'{config}' in the .devisolator directory does "
+                           "not exists.")
+
     candidates_container_file: [Path] = list()
     candidates_config_file: [Path] = list()
     candidates_addon: [Path] = list()
@@ -351,7 +369,6 @@ def get_path(config):
     container_file = [x.resolve() for x in
                       candidates_container_file
                       if x.resolve().is_file()]
-    print(f"{candidates_addon}")
     addon_search_path = [x.resolve() for x in candidates_addon
                          if x.resolve().is_dir()]
 
@@ -373,6 +390,16 @@ def get_path(config):
 
 
 def main() -> int:
+    return main_intern()
+    try:
+        ret_code = main_intern()
+    except Exception as e:
+        dprint(Verbosity.ERROR, f"{e}")
+        ret_code = 255
+    return ret_code
+
+
+def main_intern() -> int:
     """Main CLI entry point.
 
     Parse the command line with ``parse_args``, apply the requested
@@ -384,14 +411,16 @@ def main() -> int:
 
     set_verbosity(Verbosity(args.verbose))
 
+    if os.getenv("DEVISOLATOR_CONFIG"):
+        args.config = os.getenv("DEVISOLATOR_CONFIG")
+
     context_dir, container_file, config_file, addon_search_path = get_path(args.config)
 
-    if args.command == "clean":
-        return clean(args)
-
     definition = ContainerDefintion(context_dir, container_file, config_file,
-                                    args.config)
+                                    addon_search_path, args.config)
 
+    if args.command == "clean":
+        return clean(definition, args)
     if args.command == "shell":
         return shell(definition, args)
     if args.command == "build":

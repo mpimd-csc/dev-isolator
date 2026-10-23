@@ -50,7 +50,7 @@ def addon_name(path: Path) -> str:
         ADDON_FILE_SUFFIX)
 
 
-def read_enabled_addons(addons_file: Path) -> set[str]:
+def read_enabled_addons(config_file: Path) -> set[str]:
     """Return the addon names enabled in a config (``config.yaml``) file.
 
     The file is expected to have the shape::
@@ -59,29 +59,29 @@ def read_enabled_addons(addons_file: Path) -> set[str]:
           - opencode
           - my-addon
 
-    :param addons_file: Path to the config file (``config.yaml``).
+    :param config_file: Path to the config file (``config.yaml``).
     :returns: The set of enabled addon names (possibly empty).
     :raises RuntimeError: if the file is not valid YAML, does not
         contain a mapping, or the ``addons_enabled`` entry is not a
         list.
     """
     try:
-        data = yaml.safe_load(addons_file.read_text(encoding="utf-8"))
+        data = yaml.safe_load(config_file.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
         raise RuntimeError(
-            f"Invalid addons file {addons_file}: {e}") from e
+            f"Invalid config file {config_file}: {e}") from e
     if data is None:
         return set()
     if not isinstance(data, dict):
         raise RuntimeError(
-            f"Invalid addons file {addons_file}: "
+            f"Invalid config file {config_file}: "
             "expected a mapping with an 'addons_enabled' key")
     enabled = data.get("addons_enabled")
     if enabled is None:
         return set()
     if not isinstance(enabled, list):
         raise RuntimeError(
-            f"Invalid addons file {addons_file}: "
+            f"Invalid config file {config_file}: "
             "'addons_enabled' must be a list of addon names")
     return {str(name) for name in enabled}
 
@@ -250,7 +250,8 @@ class AddonsConfiguration:
     file only once.
     """
 
-    def __init__(self, context_dir=None, bundled_dir=None):
+    def __init__(self, context_dir, bundled_dir, config_file,
+                 addon_search_paths):
         """Set up the configuration for a build context.
 
         :param context_dir: Path to the build context directory.
@@ -259,35 +260,12 @@ class AddonsConfiguration:
             with dev-isolator; only used for testing. When ``None``,
             the package's bundled ``data`` directory is used.
         """
-        if context_dir:
-            self.context_dir = Path(context_dir)
-        else:
-            self.context_dir = Path(__file__).parent / BUNDLE_DIR
-        if bundled_dir:
-            self.bundled_dir = Path(bundled_dir)
-        else:
-            self.bundled_dir = Path(__file__).parent / BUNDLE_DIR
+        self.context_dir = context_dir
+        self.bundled_dir = bundled_dir
+        self.config_file = config_file
+        self.addon_search_paths = addon_search_paths
         self._enabled_addons = _UNSET
         self._addon_files = _UNSET
-
-    def config_file(self) -> Path | None:
-        """Return the active ``config.yaml`` file controlling the addons.
-
-        The ``.devisolator/config.yaml`` in the build context is used
-        when it exists; otherwise the bundled ``config.yaml`` is used.
-
-        :returns: The resolved (absolute) path of the active
-                  ``config.yaml`` file, or ``None`` when neither
-                  exists.
-        """
-        for directory in (self.context_dir / DEV_ISOLATOR_DIR,
-                          self.bundled_dir):
-            candidate = directory / CONFIG_FILE_NAME
-            dprint(Verbosity.TRACE, f"Try addon file {candidate}")
-            resolved = candidate.resolve()
-            if resolved.is_file():
-                return resolved
-        return None
 
     def enabled_addons(self) -> set[str] | None:
         """Return the names of the enabled addons.
@@ -308,14 +286,14 @@ class AddonsConfiguration:
         :raises RuntimeError: if a ``config.yaml`` file is invalid.
         """
         if self._enabled_addons is _UNSET:
-            addon_file = self.config_file()
-            if not addon_file:
+            if not self.config_file:
                 enabled = None
             else:
-                names = read_enabled_addons(addon_file)
+                names = read_enabled_addons(self.config_file)
                 enabled = set(names)
                 dprint(Verbosity.INFO,
-                       f"Addons enabled in {addon_file}: {sorted(names)}")
+                       f"Addons enabled in {self.config_file}: "
+                       " {sorted(names)}")
             self._enabled_addons = enabled
         return self._enabled_addons
 
@@ -345,8 +323,7 @@ class AddonsConfiguration:
 
             addons = []
             seen = set()
-            for directory in (self.bundled_dir,
-                              self.context_dir / DEV_ISOLATOR_DIR):
+            for directory in self.addon_search_paths:
                 if not directory.is_dir():
                     continue
                 for addon in sorted(directory.glob("addon.*")):
@@ -445,7 +422,7 @@ class AddonsConfiguration:
             ``config.yaml`` exists at all.
         :raises RuntimeError: if the ``config.yaml`` is invalid.
         """
-        config_file = self.config_file()
+        config_file = self.config_file
         if not config_file:
             return {}, {}
         dprint(Verbosity.INFO,

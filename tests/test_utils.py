@@ -90,7 +90,7 @@ class TestDprint:
         """args and kwargs are passed through to print."""
         set_verbosity(Verbosity.DEBUG)
         dprint(Verbosity.DEBUG, "a", "b", sep="-", end="!\n")
-        assert capsys.readouterr().out == "a-b!\n"
+        assert capsys.readouterr().out == "[DEBUG] a-b!\n"
 
     def test_file_kwarg_is_forwarded(self, capsys):
         """Output goes to the requested stream."""
