@@ -111,12 +111,15 @@ The dev-isolator command can also be abbreviated by `di`
         "--config",
         type=str,
         default=None,
-        help="set the name of the sub-configuration"
+        help="Name of the sub-configuration (a subdirectory of the "
+             ".devisolator directory holding its own ``Containerfile`` and "
+             "``config.yaml``) to use instead of the project's default "
+             "one."
     )
 
     build_parser = subparsers.add_parser(
         "build",
-        help="Build the current devisolator image",
+        help="Build the current dev-isolator image",
         description="Build the image from the project settings or the "
                     "default one."
         )
@@ -138,7 +141,7 @@ The dev-isolator command can also be abbreviated by `di`
     subparsers.add_parser(
         "shell",
         help="Open a terminal/shell inside the container "
-             "isolator-<slug_of_the_current_path>.",
+             "dev-isolator-<slug_of_the_current_path>.",
     )
 
     clean_parser = subparsers.add_parser(
@@ -166,7 +169,7 @@ The dev-isolator command can also be abbreviated by `di`
         "opencode",
         add_help=False,
         help="Run opencode inside the container "
-             "isolator-<slug_of_the_current_path>, "
+             "dev-isolator-<slug_of_the_current_path>, "
              "passing all following arguments to it "
              "(for example ``opencode --port 4096``).",
     )
@@ -175,7 +178,7 @@ The dev-isolator command can also be abbreviated by `di`
         "claude",
         add_help=False,
         help="Run claude inside the container "
-             "isolator-<slug_of_the_current_path>, "
+             "dev-isolator-<slug_of_the_current_path>, "
              "passing all following arguments to it "
              "(for example ``claude --model xyz``).",
     )
@@ -183,7 +186,9 @@ The dev-isolator command can also be abbreviated by `di`
     subparsers.add_parser(
         "run",
         add_help=False,
-        help="Run a command inside the container.",
+        help="Run an arbitrary command inside the container, passing all "
+             "following arguments through to it "
+             "(for example ``run make test``).",
         )
 
     return parser
