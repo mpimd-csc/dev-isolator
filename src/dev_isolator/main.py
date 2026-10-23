@@ -4,9 +4,9 @@ dev-isolator manages a per-project, podman based development
 environment.  For every project that contains a ``.devisolator``
 directory (holding a ``Containerfile`` and optional addon
 configuration) it builds an image named
-``dev-isolator-<slug_of_the_project_path>`` and runs commands inside a
-container created from it, with the project directory mounted at the
-same path.  This keeps build tools, caches and dependencies isolated
+``dev-isolator:<slug_of_the_project_path>`` and runs commands inside a
+container created from it, with the project directory mounted at
+``/workspace``.  This keeps build tools, caches and dependencies isolated
 from the host while the sources stay in place.
 
 The sub commands are:
@@ -22,7 +22,8 @@ The sub commands are:
     Run the respective AI coding tool inside the container.
 ``clean``
     Remove the image of the current project (or, with ``--all``, every
-    dev-isolator image).
+    dev-isolator image, or with ``--local``, every image of the current
+    project).
 
 The ``--shell/-s`` option, given before the sub command, selects the
 shell used by ``shell`` and by ``run``/``opencode``/``claude`` when they
@@ -51,8 +52,9 @@ DEFAULT_SHELL = "bash"
 def create_parser() -> argparse.ArgumentParser:
     """Create and configure the command line argument parser.
 
-    Defines the global options (``--verbose/-v`` and ``--shell/-s``) on
-    the top level parser and one subparser per sub command.  The
+    Defines the global options (``--verbose/-v``, ``--shell/-s`` and
+    ``--config/-c``) on the top level parser and one subparser per sub
+    command.  The
     ``opencode``, ``claude`` and ``run`` parsers disable their own help
     handling and define no arguments, so that unknown arguments following
     them are returned verbatim in the remainder of ``parse_known_args``
@@ -62,12 +64,13 @@ def create_parser() -> argparse.ArgumentParser:
         Manage an isolated, podman based development environment
         for the current project.
 
-        Images are named dev-isolator-<slug_of_the_project_path> and
+        Images are named dev-isolator:<slug_of_the_project_path> and
         are built from the ``Containerfile`` found in the
         ``.devisolator`` directory of the project or form a default one.
         Commands started with dev-isolator run inside a container created
-        from this image, with the project directory mounted at its original
-        path, so tools and dependencies stay isolated from the host.
+        from this image, with the project directory mounted at
+        ``/workspace``, so tools and dependencies stay isolated from the
+        host.
         """
     epilog = """\
 examples:
@@ -197,8 +200,9 @@ The dev-isolator command can also be abbreviated by `di`
 def global_options_parser() -> argparse.ArgumentParser:
     """Return a parser exposing only the global options.
 
-    The global options (``--verbose`` and ``--shell``) live on the top
-    level parser and must precede the sub command.  A parser with just
+    The global options (``--verbose``, ``--shell`` and ``--config``)
+    live on the top level parser and must precede the sub command.  A
+    parser with just
     these options and no sub commands consumes the leading global
     options and leaves the sub command — together with everything
     following it and any options that precede it and are not global —
@@ -237,9 +241,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     """Parse command line arguments into a namespace.
 
     Parse ``argv`` (by default ``sys.argv[1:]``) with the parser from
-    ``create_parser``.  The global options (``--verbose`` and
-    ``--shell``) live on the top level parser, so they must precede the
-    sub command; unknown options before the sub command are rejected.
+    ``create_parser``.  The global options (``--verbose``,
+    ``--shell`` and ``--config``) live on the top level parser, so they
+    must precede the sub command; unknown options before the sub command
+    are rejected.
 
     The ``opencode``, ``claude`` and ``run`` sub commands disable their
     own help handling and define no arguments, so every token following
@@ -289,7 +294,9 @@ def build(definition, args) -> int:
 
     Look up the container definition of the current project and build
     its image.  Pass ``--nocache`` to podman when ``args.nocache`` is
-    set.  Returns 0 on success, or 1 on error.
+    set and, when ``args.keep_container_file`` is set, keep the
+    generated Containerfile in the current directory on a build error.
+    Returns 0 on success, or 1 on error.
     """
     try:
         definition.build_container(nocache=args.nocache,
@@ -304,9 +311,10 @@ def build(definition, args) -> int:
 def clean(definition, args) -> int:
     """Handle the ``clean`` sub command.
 
-    Remove the image of the current project, or every dev-isolator
-    image when ``args.clean_all`` is set.  Returns 0 on success, or 1
-    on error.
+    Remove the image of the current project, every dev-isolator image
+    when ``args.clean_all`` is set, or every image of the current project
+    when ``args.clean_local`` is set.  Returns 0 on success, or 1 on
+    error.
     """
     try:
         if args.clean_all:
