@@ -290,6 +290,7 @@ class ContainerDefintion:
                     # reads the file during the build.
                     merged_container_file.flush()
 
+                    dprint(Verbosity.INFO, "Building image ...")
                     image, build_logs = client.images.build(
                         path=str(self.context_dir),
                         dockerfile=merged_container_file.name,
