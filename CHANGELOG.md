@@ -2,6 +2,11 @@ Version 0.1
 ===========
 
 * Initial Release, playground for the idea.
+* The container name is suffixed with 8 random characters, so several
+  containers of the same project can run in parallel.
+* The ``clean`` subcommand now also stops, kills and removes the
+  containers matching the removed images (by image id or by container
+  name prefix), even when the image was already deleted.
 * The ``addon.*`` files are jinja2 templates (``addon.<name>.jinja2``).
 * The new ``opencode`` subcommand runs opencode inside the container
   and passes all following arguments (for example

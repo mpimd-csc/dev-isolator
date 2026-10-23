@@ -10,7 +10,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 import os
 import pwd
+import random
 import re
+import string
 import subprocess
 import sys
 import time
@@ -26,6 +28,7 @@ from .utils import dprint, Verbosity, get_verbosity
 
 IMAGE_PREFIX = "dev-isolator"
 OCI_IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
+CONTAINER_NAME_SUFFIX_LENGTH = 8
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
@@ -323,11 +326,11 @@ class ContainerDefintion:
                       command: list[str] | None = None) -> int:
         """Open an interactive terminal/shell inside the container.
 
-        Builds the image (see :meth:`build_container`), creates the
-        container from it (or reuses one created earlier), ensures
-        it is running and then attaches the local terminal to a
-        command inside the container. The container is stopped again
-        after the session ends (unless it is already gone).
+        Builds the image (see :meth:`build_container`), creates a
+        container from it, ensures it is running and then attaches the
+        local terminal to a command inside the container. The container
+        is stopped again after the session ends (unless it is already
+        gone).
 
         :param interactive_shell: Shell to start inside the container.
             Ignored when ``command`` is given.
@@ -338,7 +341,9 @@ class ContainerDefintion:
         :raises RuntimeError: if the container does not reach the
             ``running`` state.
 
-        The interactive session itself is attached via the local
+        The container gets a unique name (see :meth:`container_name`),
+        so several containers can run in parallel. The interactive
+        session itself is attached via the local
         ``podman exec -it`` CLI, because the podman Python bindings
         cannot bridge stdin/TTY to the podman service (their
         ``attach``/``attach_socket``/``exec_run(socket=True)`` are not
@@ -374,42 +379,13 @@ class ContainerDefintion:
                    f"Mounting volumes {sorted(volumes)} "
                    "into the container")
 
-            # Replace any leftover container with the same name,
-            # so the new one can be created cleanly.
-            try:
-                old_container = client.containers.get(
-                    self.container_name())
-            except podman.errors.NotFound:
-                old_container = None
-            if old_container is not None:
-                old_name = old_container.name or old_container.id
-                dprint(Verbosity.INFO,
-                       f"Existing container {old_name} found, "
-                       "replacing it")
-                try:
-                    old_container.reload()
-                    if old_container.status == "running":
-                        try:
-                            old_container.stop(timeout=10)
-                            dprint(Verbosity.INFO,
-                                   f"Stopped container {old_name}")
-                        except podman.errors.APIError:
-                            old_container.kill()
-                            dprint(Verbosity.INFO,
-                                   f"Killed container {old_name}")
-                    old_container.remove()
-                    dprint(Verbosity.INFO,
-                           f"Removed container {old_name}")
-                except podman.errors.NotFound:
-                    dprint(Verbosity.INFO,
-                           f"Container {old_name} is already gone")
-                except podman.errors.APIError as e:
-                    print(f"Warning: could not replace container "
-                          f"{old_name}: {e}", file=sys.stderr)
+            # A unique name lets several containers of the same
+            # project run in parallel.
+            container_name = self.container_name()
 
             container = client.containers.create(
                 image,
-                name=self.container_name(),
+                name=container_name,
                 # The image's entrypoint may exit immediately; keep
                 # the container alive so shells can exec into it.
                 entrypoint=["sleep", "infinity"],
@@ -422,14 +398,14 @@ class ContainerDefintion:
                 detach=True,
             )
             dprint(Verbosity.INFO,
-                   f"Created container {self.container_name()} "
+                   f"Created container {container_name} "
                    f"from {self.image_name()}")
 
             container.reload()
             if container.status in ("created", "exited", "stopped"):
                 container.start()
                 dprint(Verbosity.INFO,
-                       f"Started container {self.container_name()}")
+                       f"Started container {container_name}")
                 # Wait until the container is actually running before
                 # attaching, otherwise podman exec may hit it too early.
                 for _ in range(100):
@@ -441,7 +417,7 @@ class ContainerDefintion:
                     container.kill(9)
                     container.remove()
                     raise RuntimeError(
-                        f"Container {self.container_name()} did not reach "
+                        f"Container {container_name} did not reach "
                         f"'running' state (status: {container.status})")
 
             if command is None:
@@ -452,41 +428,43 @@ class ContainerDefintion:
                 "podman", "exec", "-it",
                 "--detach-keys", "",
                 "-e", f"TERM={os.environ.get('TERM', 'xterm')}",
-                self.container_name(),
+                container_name,
                 *exec_argv,
             ]
             session_command = " ".join(exec_argv)
             dprint(Verbosity.INFO,
-                   f"Opening terminal in {self.container_name()} "
+                   f"Opening terminal in {container_name} "
                    f"({session_command}; detach with Ctrl-D or 'exit')")
             exit_code = subprocess.call(exec_cmd)
             dprint(Verbosity.INFO,
-                   f"Session in {self.container_name()} exited "
+                   f"Session in {container_name} exited "
                    f"(exit code: {exit_code})")
 
             # Shut the container down after the terminal session ends.
             try:
                 container.stop(timeout=0)
                 dprint(Verbosity.INFO,
-                       f"Stopped container {self.container_name()}")
+                       f"Stopped container {container_name}")
                 container.remove()
                 dprint(Verbosity.INFO,
-                       f"Removed container {self.container_name()}")
+                       f"Removed container {container_name}")
             except podman.errors.NotFound:
                 # Container was removed elsewhere; nothing to shut down.
                 dprint(Verbosity.INFO,
-                       f"Container {self.container_name()} is already gone")
+                       f"Container {container_name} is already gone")
             except podman.errors.APIError as e:
                 dprint(Verbosity.INFO,
                        f"Warning: could not stop container "
-                       f"{self.container_name()}: {e}", file=sys.stderr)
+                       f"{container_name}: {e}", file=sys.stderr)
         return exit_code
 
     def clean_image(self):
         """Remove the image built for this container definition.
 
-        Stops (eventually killing) all containers based on the image
-        and removes them before the image is removed.
+        Stops (eventually killing) all containers of this container
+        definition (by name and by image) and removes them before the
+        image is removed; containers are also cleaned when the image
+        does not exist anymore.
 
         When the global verbosity (see :func:`utils.set_verbosity`)
         is at least ``Verbosity.INFO`` (for example ``--verbose``),
@@ -500,15 +478,20 @@ class ContainerDefintion:
             except (podman.errors.NotFound, podman.errors.ImageNotFound):
                 dprint(Verbosity.INFO, "Image "
                        f"{self.image_name()} not found; nothing to clean")
+                image = None
+            if image is None:
+                self._clean_containers(
+                    client, [(self.container_name_prefix(), "-")])
                 return
-            self._clean_images(client, [image])
+            self._clean_images(client, [image],
+                               [(self.container_name_prefix(), "-")])
 
     def clean_local_images(self):
-        """Remove all dev-isolator images.
+        """Remove all dev-isolator images of the current project.
 
-        Stops (eventually killing) all containers based on any
-        dev-isolator image and removes them before the images are
-        removed.
+        Stops (eventually killing) all containers derived from any
+        dev-isolator image of the current project — matching by name
+        or by image — and removes them before the images are removed.
 
         When the global verbosity (see :func:`utils.set_verbosity`)
         is at least ``Verbosity.INFO`` (for example ``--verbose``),
@@ -516,21 +499,23 @@ class ContainerDefintion:
         :raises RuntimeError: if podman refuses to remove the images.
         """
 
+        name_matchers = [(self.project_container_name_prefix(), "--")]
         with podman.PodmanClient() as client:
             images = [image for image in client.images.list()
                       if self._is_devisolator_local_image(image)]
             if not images:
                 dprint(Verbosity.INFO,
                        f"No {IMAGE_PREFIX} images found; nothing to clean")
+                self._clean_containers(client, name_matchers)
                 return
-            self._clean_images(client, images)
+            self._clean_images(client, images, name_matchers)
 
     def clean_all_images(self):
         """Remove all dev-isolator images.
 
-        Stops (eventually killing) all containers based on any
-        dev-isolator image and removes them before the images are
-        removed.
+        Stops (eventually killing) all containers derived from any
+        dev-isolator image — matching by name or by image — and
+        removes them before the images are removed.
 
         When the global verbosity (see :func:`utils.set_verbosity`)
         is at least ``Verbosity.INFO`` (for example ``--verbose``),
@@ -538,14 +523,16 @@ class ContainerDefintion:
         :raises RuntimeError: if podman refuses to remove the images.
         """
 
+        name_matchers = [(IMAGE_PREFIX, "-")]
         with podman.PodmanClient() as client:
             images = [image for image in client.images.list()
                       if self._is_devisolator_image(image)]
             if not images:
                 dprint(Verbosity.INFO,
                        f"No {IMAGE_PREFIX} images found; nothing to clean")
+                self._clean_containers(client, name_matchers)
                 return
-            self._clean_images(client, images)
+            self._clean_images(client, images, name_matchers)
 
     @staticmethod
     def _is_devisolator_image(image) -> bool:
@@ -584,25 +571,68 @@ class ContainerDefintion:
         )
 
     @staticmethod
-    def _clean_images(client, images):
-        """Stop and remove the containers based on ``images`` and
-        remove the images afterwards.
+    def _clean_images(client, images, name_matchers=()):
+        """Stop, kill and remove the containers based on ``images``
+        or named after ``name_matchers`` and remove the images
+        afterwards.
 
         :param client: Connected :class:`podman.PodmanClient`.
         :param images: Images to remove.
+        :param name_matchers: ``(base, separator)`` pairs describing
+            container name prefixes whose containers are removed
+            additionally (for example containers left over from a
+            previously built image).
         :raises RuntimeError: if podman refuses to remove an image.
         """
         image_ids = {image.id for image in images}
+        ContainerDefintion._clean_containers(client, name_matchers,
+                                             image_ids)
 
-        for container in client.containers.list(all=True):
+        for image in images:
+            shown_name = ", ".join(image.tags) if image.tags else image.id
+            try:
+                client.images.remove(image.id, force=True)
+                dprint(Verbosity.INFO, f"Removed image {shown_name}")
+            except podman.errors.APIError as e:
+                raise RuntimeError(
+                    f"Failed to remove image {shown_name}: {e}") from e
+
+    @staticmethod
+    def _clean_containers(client, name_matchers, image_ids=frozenset()):
+        """Stop, kill and remove all containers matching the criteria.
+
+        A container matches when its name equals one of the
+        ``name_matcher`` bases or starts with a base followed by its
+        separator — ``name_matchers`` is a list of
+        ``(base, separator)`` pairs — or when it was created from one
+        of the ``image_ids``.
+
+        Running containers are stopped (with a grace period); when
+        stopping fails, they are killed. Afterwards they are removed.
+
+        :param client: Connected :class:`podman.PodmanClient`.
+        :param name_matchers: ``(base, separator)`` pairs matching
+            container names.
+        :param image_ids: Ids of images whose containers are removed.
+        """
+        image_ids = frozenset(image_ids)
+
+        def matches(container) -> bool:
+            name = container.name or ""
+            if any(name == base or name.startswith(base + separator)
+                   for base, separator in name_matchers):
+                return True
             # The container report keys "ImageID" and "Image" name
             # the image the container was created from.
             container_image_id = container.attrs.get("ImageID") \
                 or container.attrs.get("Image")
-            if container_image_id is None \
-                    or container_image_id not in image_ids:
-                continue
+            return (container_image_id is not None
+                    and container_image_id in image_ids)
+
+        for container in client.containers.list(all=True):
             name = container.name or container.id
+            if not matches(container):
+                continue
             try:
                 container.reload()
                 if container.status == "running":
@@ -621,15 +651,6 @@ class ContainerDefintion:
                 print(f"Warning: could not remove container "
                       f"{name}: {e}", file=sys.stderr)
 
-        for image in images:
-            shown_name = ", ".join(image.tags) if image.tags else image.id
-            try:
-                client.images.remove(image.id, force=True)
-                dprint(Verbosity.INFO, f"Removed image {shown_name}")
-            except podman.errors.APIError as e:
-                raise RuntimeError(
-                    f"Failed to remove image {shown_name}: {e}") from e
-
     def image_name(self) -> str:
         """Return the image name
            ``dev-isolator:<slug_of_the_current_path>--<tag>``."""
@@ -640,13 +661,43 @@ class ContainerDefintion:
            ``dev-isolator:<slug_of_the_current_path>``."""
         return f"{IMAGE_PREFIX}:{self.current_path_slug()}"
 
-    def container_name(self) -> str:
-        """Return a valid container name derived from the current path tag.
+    def project_container_name_prefix(self) -> str:
+        """Return the container name prefix shared by every tag
+           variant of the current project
+           ``dev-isolator-<slug_of_the_current_path>``.
+
+        Used by ``clean --local`` to find the containers of all tag
+        variants of the project (see :meth:`clean_local_images`).
+        """
+        return f"{IMAGE_PREFIX}-{self.current_path_slug()}"
+
+    def container_name_prefix(self) -> str:
+        """Return the container name prefix shared by all containers
+           of this container definition
+           ``dev-isolator-<slug_of_the_current_path>--<tag>``.
 
         Podman container names cannot contain ':', so the tag's
-        ``dev-isolator:slug`` form becomes ``dev-isolator-slug``.
+        ``dev-isolator:slug--tag`` form becomes ``dev-isolator-slug--tag``.
         """
         return self.image_name().replace(":", "-")
+
+    def container_name(self) -> str:
+        """Return a unique container name for a new run.
+
+        The name is the :meth:`container_name_prefix` followed by a
+        random suffix of :const:`CONTAINER_NAME_SUFFIX_LENGTH`
+        lowercase alphanumeric characters, for example
+        ``dev-isolator-my-project--default-k3x9q2zf``.
+
+        The random suffix lets several containers of the same project
+        run in parallel without name clashes. Containers matching the
+        prefix are removed again by the ``clean`` command (see
+        :meth:`clean_image`).
+        """
+        alphabet = string.ascii_lowercase + string.digits
+        suffix = "".join(random.choices(alphabet,
+                                        k=CONTAINER_NAME_SUFFIX_LENGTH))
+        return f"{self.container_name_prefix()}-{suffix}"
 
     @staticmethod
     def current_path_slug() -> str:

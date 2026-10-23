@@ -21,9 +21,10 @@ The sub commands are:
 ``opencode`` / ``claude``
     Run the respective AI coding tool inside the container.
 ``clean``
-    Remove the image of the current project (or, with ``--all``, every
-    dev-isolator image, or with ``--local``, every image of the current
-    project).
+    Stop, kill and remove the containers of the current project and
+    remove its image (or, with ``--all``, every dev-isolator image and
+    container, or with ``--local``, every image and container of the
+    current project).
 
 The ``--shell/-s`` option, given before the sub command, selects the
 shell used by ``shell`` and by ``run``/``opencode``/``claude`` when they
@@ -143,8 +144,9 @@ The dev-isolator command can also be abbreviated by `di`
 
     subparsers.add_parser(
         "shell",
-        help="Open a terminal/shell inside the container "
-             "dev-isolator-<slug_of_the_current_path>--<tag>.",
+        help="Open a terminal/shell inside a container "
+             "dev-isolator-<slug_of_the_current_path>--<tag>-<8 random "
+             "characters>.",
     )
 
     clean_parser = subparsers.add_parser(
@@ -171,18 +173,18 @@ The dev-isolator command can also be abbreviated by `di`
     subparsers.add_parser(
         "opencode",
         add_help=False,
-        help="Run opencode inside the container "
-             "dev-isolator-<slug_of_the_current_path>--<tag>, "
-             "passing all following arguments to it "
+        help="Run opencode inside a container "
+             "dev-isolator-<slug_of_the_current_path>--<tag>-<8 random "
+             "characters>, passing all following arguments to it "
              "(for example ``opencode --port 4096``).",
     )
 
     subparsers.add_parser(
         "claude",
         add_help=False,
-        help="Run claude inside the container "
-             "dev-isolator-<slug_of_the_current_path>--<tag>, "
-             "passing all following arguments to it "
+        help="Run claude inside a container "
+             "dev-isolator-<slug_of_the_current_path>--<tag>-<8 random "
+             "characters>, passing all following arguments to it "
              "(for example ``claude --model xyz``).",
     )
 
@@ -313,8 +315,9 @@ def clean(definition, args) -> int:
 
     Remove the image of the current project, every dev-isolator image
     when ``args.clean_all`` is set, or every image of the current project
-    when ``args.clean_local`` is set.  Returns 0 on success, or 1 on
-    error.
+    when ``args.clean_local`` is set.  Matching containers are stopped
+    (eventually killed) and removed as well.  Returns 0 on success, or 1
+    on error.
     """
     try:
         if args.clean_all:

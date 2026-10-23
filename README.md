@@ -7,8 +7,9 @@ For every project containing a `.devisolator` directory (holding a
 `Containerfile` and optional addon configuration) it builds a container
 image named `dev-isolator:<slug_of_the_project_path>--<tag>` (the
 default tag is `default`) and runs commands inside a container named
-`dev-isolator-<slug_of_the_project_path>--<tag>`, created from that
-image. The current working
+`dev-isolator-<slug_of_the_project_path>--<tag>-<8 random characters>`,
+created from that image. The random suffix lets several containers
+of the same project run in parallel. The current working
 directory is mounted into the container at `/workspace`. This keeps
 build tools, caches and dependencies isolated from the host, while the
 sources stay in place.
@@ -129,8 +130,11 @@ Opens an interactive shell inside the container:
 
 1. The image is always built first (as with `build`, without
    `--nocache`), rebuilding is cheap thanks to the build cache.
-2. A container named `dev-isolator-<slug_of_the_project_path>--<tag>`
-   is created and started. It
+2. A container named
+   `dev-isolator-<slug_of_the_project_path>--<tag>-<8 random characters>`
+   is created and started. The
+   random suffix lets several containers of the same project run in
+   parallel. It
    runs `sleep infinity` as its entrypoint, so it stays alive for the
    session. The container runs with `--userns=keep-id`, i.e. the same
    UID/GID as the host user, so files created in the `/workspace` bind
@@ -185,9 +189,13 @@ or — when [`--config`](#sub-configurations---config) is in effect — the
 selected sub-configuration's image. `clean --all` and `clean --local`
 remove images regardless of the selection.
 
-Before removal, all containers based on the image(s) are stopped
-(after 10 seconds they are killed) and removed. With `--verbose` the
-removed containers and images are printed.
+Before removal, all matching containers are stopped (after 10 seconds
+they are killed) and removed. A container matches when it was created
+from one of the images or when its name starts with the project's
+container name prefix (`dev-isolator-<slug>--<tag>` for `clean`,
+`dev-isolator-<slug>` for `clean --local`, or `dev-isolator-` for
+`clean --all`). With `--verbose` the removed containers and images
+are printed.
 
 Options:
 
@@ -328,6 +336,7 @@ The configuration of a containerized dev environment lives in the
     - claude
   environment:
     - OMP_NUM_THREADS
+    - PYTHONDONTWRITEBYTECODE=1
   volumes:
     - /tmp:/host_tmp
   ```
@@ -356,8 +365,9 @@ Configuration resolution rules:
   `addon.*.jinja2` file is enabled.
 - The `environment` and `volumes` sections of `config.yaml` are
   processed exactly like those of an addon config file (see below):
-  `environment` names variables taken from the host and `volumes`
-  lists `host:container[:mode]` specs.
+  `environment` entries are either `NAME` (taken from the host) or
+  `NAME=value` (used as given), and `volumes` lists
+  `host:container[:mode]` specs.
 - Addon templates are collected first from the directory bundled with
   dev-isolator, then from `.devisolator/` (sorted by file name);
   duplicates are removed.
@@ -380,14 +390,17 @@ An addon config file has the shape
 ```yaml
 environment:
   - VAR1
+  - VAR2=value
 volumes:
   - /host/path:/path/in/container
   - ENV[DEV_DATA_DIR]/data:/data:ro
 ```
 
-- `environment` lists the names of environment variables taken from
-  the host and passed into the container. Variables which are not set
-  on the host are skipped with a message.
+- `environment` entries are either ``NAME`` or ``NAME=value``:
+  a bare ``NAME`` is taken from the host and passed into the
+  container (variables which are not set on the host are skipped
+  with a message), while ``NAME=value`` passes ``value`` into the
+  container as-is, without consulting the host.
 - `volumes` lists `host:container[:mode]` specs. The mode defaults to
   `rw` when omitted (`ro` mounts read-only). The spec is split on `:`
   into its host path, container path and (optional) mode parts, and
@@ -472,6 +485,7 @@ addons_enabled:
 environment:
   - OMP_NUM_THREADS
   - PYTHONDONTWRITEBYTECODE
+  - PIP_INDEX_URL=https://example.com/simple
 volumes:
   - /tmp:/host_tmp
 ```
@@ -479,8 +493,10 @@ volumes:
 - `addons_enabled` lists the addon names to append (see
   `addon.<name>.jinja2` below and the bundled `opencode`/`claude`
   addons). Without this file, every `addon.*.jinja2` is enabled.
-- `environment` names host variables to forward into the container
-  (those that are unset on the host are skipped).
+- `environment` entries are either `NAME` (a host variable to forward
+  into the container; unset ones are skipped) or `NAME=value`
+  (a value passed into the container as-is, without consulting
+  the host).
 - `volumes` lists `host:container[:mode]` mounts; `mode` defaults to
   `rw`. The project directory is always bind-mounted at `/workspace`
   and takes precedence over anything declared here.
@@ -518,6 +534,7 @@ shape:
 ```yaml
 environment:
   - PIP_CACHE_DIR
+  - PIP_DEFAULT_TIMEOUT=60
 volumes:
   - ${HOME}/.cache/python:${HOME}/.cache/python:ro
   - ENV[PIP_CACHE_DIR]:ENV[PIP_CACHE_DIR]

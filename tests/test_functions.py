@@ -4,13 +4,15 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 import importlib
+import string
 import sys
 from pathlib import Path
 
 import podman.errors
 import pytest
 import dev_isolator.container_manager as container_manager
-from dev_isolator.container_manager import ContainerDefintion, BUNDLE_DIR
+from dev_isolator.container_manager import (ContainerDefintion, BUNDLE_DIR,
+                                            CONTAINER_NAME_SUFFIX_LENGTH)
 from dev_isolator.main import DEFAULT_SHELL, create_parser, parse_args
 from dev_isolator.utils import Verbosity
 
@@ -239,6 +241,9 @@ class FakeImages:
         except KeyError:
             raise podman.errors.NotFound(
                 f"No image with tag {name}") from None
+
+    def list(self):
+        return list(self.existing.values())
 
     def remove(self, image_id, force=False):
         self.events.append(("remove", image_id))
@@ -756,3 +761,278 @@ class TestMainRunDispatch:
 
         assert di_main.main() == 0
         assert called["call"] == ("make", ["test"])
+
+
+class TestContainerName:
+    """Test the naming of the containers created by run_container."""
+
+    @pytest.fixture
+    def project(self, tmp_path: Path):
+        """A small project without custom addons."""
+        config_dir = tmp_path / ".devisolator"
+        config_dir.mkdir()
+        container_file = config_dir / "Containerfile"
+        container_file.write_text("FROM ubuntu:26.04\n")
+        return ContainerDefintion(tmp_path, container_file, None,
+                                  [config_dir])
+
+    def test_prefix_is_image_name_without_colon(self, project):
+        prefix = project.container_name_prefix()
+        assert prefix == project.image_name().replace(":", "-")
+
+    def test_name_has_random_suffix(self, project):
+        """The container name extends the prefix by 8 random
+        lowercase alphanumeric characters, so several containers
+        can run in parallel."""
+        prefix = project.container_name_prefix()
+        name = project.container_name()
+
+        assert name.startswith(prefix + "-")
+        suffix = name[len(prefix) + 1:]
+        assert len(suffix) == CONTAINER_NAME_SUFFIX_LENGTH
+        assert all(c in string.ascii_lowercase + string.digits
+                   for c in suffix)
+
+    def test_names_of_consecutive_calls_differ(self, project):
+        names = {project.container_name() for _ in range(64)}
+        assert len(names) == 64
+
+    @pytest.fixture
+    def exec_cmd(self, monkeypatch):
+        """Capture the ``podman exec`` command built by
+        run_container instead of calling the real CLI."""
+        commands = []
+        monkeypatch.setattr(
+            "dev_isolator.container_manager.subprocess.call",
+            lambda cmd: commands.append(cmd) or 0)
+        return commands
+
+    def test_created_container_is_named_with_suffix(
+            self, project, monkeypatch, exec_cmd):
+        """run_container creates a container whose name carries the
+        random suffix (see TestContainerName)."""
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+        images = FakeImages()
+        images.existing[project.image_name()] = FakeImage(
+            id="sha256:abc123", tags=[project.image_name()])
+        containers = FakeRunContainers()
+        monkeypatch.setattr(
+            "dev_isolator.container_manager.podman.PodmanClient",
+            lambda: FakeRunClient(images, containers))
+
+        project.run_container(command=["true"])
+
+        prefix = project.container_name_prefix()
+        name = containers.created[0]["name"]
+        assert name.startswith(prefix + "-")
+        assert len(name) == len(prefix) + 1 + CONTAINER_NAME_SUFFIX_LENGTH
+        assert exec_cmd[0][-2] == name
+
+
+class FakeCleanContainer:
+    """Minimal stand-in for a podman Container in ``clean``."""
+
+    def __init__(self, name, image_id=None, status="running"):
+        self.name = name
+        self.id = f"container-{name}"
+        self.status = status
+        self.attrs = {}
+        if image_id is not None:
+            self.attrs["ImageID"] = image_id
+        self.events = []
+
+    def reload(self):
+        pass
+
+    def stop(self, timeout=None):
+        self.events.append(("stop", timeout))
+
+    def kill(self, *args):
+        self.events.append(("kill",))
+
+    def remove(self):
+        self.events.append(("remove",))
+
+
+class StrictStopContainer(FakeCleanContainer):
+    """A container whose stop always fails, falling back to kill."""
+
+    def stop(self, timeout=None):
+        raise podman.errors.APIError("stop failed")
+
+
+class FakeCleanContainers:
+    """Minimal stand-in for the podman containers manager."""
+
+    def __init__(self, containers=None):
+        self.containers = containers or []
+
+    def list(self, all=False):
+        return list(self.containers)
+
+
+class TestCleanRemovesMatchingContainers:
+    """Test that clean stops, kills and removes matching containers.
+
+    Containers are matched by name (a project prefix followed by the
+    random suffix) and by the id of the image they were created
+    from.
+    """
+
+    @pytest.fixture
+    def project(self, tmp_path: Path):
+        """A small project without custom addons."""
+        config_dir = tmp_path / ".devisolator"
+        config_dir.mkdir()
+        container_file = config_dir / "Containerfile"
+        container_file.write_text("FROM ubuntu:26.04\n")
+        return ContainerDefintion(tmp_path, container_file, None,
+                                  [config_dir])
+
+    @pytest.fixture
+    def containers(self):
+        """The fake containers manager capturing the removals."""
+        return FakeCleanContainers()
+
+    @pytest.fixture
+    def install_client(self, containers, monkeypatch):
+        """Return a function patching PodmanClient to serve the fake
+        containers together with given fake images."""
+
+        def install(images):
+            monkeypatch.setattr(
+                "dev_isolator.container_manager.podman.PodmanClient",
+                lambda: FakeRunClient(images, containers))
+            return images
+
+        return install
+
+    def test_running_container_is_stopped_and_removed(
+            self, project, containers, install_client, monkeypatch):
+        prefix = project.container_name_prefix()
+        container = FakeCleanContainer(f"{prefix}-abcd1234",
+                                       image_id="sha256:abc123")
+        containers.containers = [container]
+        images = install_client(FakeImages())
+        images.existing[project.image_name()] = FakeImage(
+            id="sha256:abc123", tags=[project.image_name()])
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+
+        project.clean_image()
+
+        assert container.events == [("stop", 10), ("remove",)]
+        assert images.removed == [("sha256:abc123", True)]
+
+    def test_stopped_container_is_removed_without_stop(
+            self, project, containers, install_client, monkeypatch):
+        prefix = project.container_name_prefix()
+        container = FakeCleanContainer(f"{prefix}-abcd1234",
+                                       image_id="sha256:abc123",
+                                       status="exited")
+        containers.containers = [container]
+        images = install_client(FakeImages())
+        images.existing[project.image_name()] = FakeImage(
+            id="sha256:abc123", tags=[project.image_name()])
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+
+        project.clean_image()
+
+        assert container.events == [("remove",)]
+
+    def test_container_is_killed_when_stop_fails(
+            self, project, containers, install_client, monkeypatch):
+        prefix = project.container_name_prefix()
+        container = StrictStopContainer(f"{prefix}-abcd1234",
+                                        image_id="sha256:abc123")
+        containers.containers = [container]
+        images = install_client(FakeImages())
+        images.existing[project.image_name()] = FakeImage(
+            id="sha256:abc123", tags=[project.image_name()])
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+
+        project.clean_image()
+
+        assert container.events == [("kill",), ("remove",)]
+
+    def test_foreign_containers_are_left_alone(
+            self, project, containers, install_client, monkeypatch):
+        prefix = project.container_name_prefix()
+        own_container = FakeCleanContainer(f"{prefix}-abcd1234",
+                                           image_id="sha256:abc123")
+        other_project = FakeCleanContainer(
+            prefix + "2-other--default-abcd1234",
+            image_id="sha256:otherimage")
+        unrelated = FakeCleanContainer("unrelated-container",
+                                       image_id="sha256:otherimage")
+        containers.containers = [own_container, other_project, unrelated]
+        images = install_client(FakeImages())
+        images.existing[project.image_name()] = FakeImage(
+            id="sha256:abc123", tags=[project.image_name()])
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+
+        project.clean_image()
+
+        assert own_container.events == [("stop", 10), ("remove",)]
+        assert other_project.events == []
+        assert unrelated.events == []
+
+    def test_clean_without_image_still_removes_containers(
+            self, project, containers, install_client, monkeypatch):
+        """Containers of the project are removed even when the image
+        was already deleted."""
+        prefix = project.container_name_prefix()
+        container = FakeCleanContainer(f"{prefix}-abcd1234",
+                                       image_id="sha256:abc123")
+        containers.containers = [container]
+        install_client(FakeImages())
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+
+        project.clean_image()
+
+        assert container.events == [("stop", 10), ("remove",)]
+
+    def test_clean_local_removes_containers_by_prefix(
+            self, project, containers, install_client, monkeypatch):
+        """clean --local removes containers of every tag variant of
+        the current project, matched by name."""
+        prefix = project.project_container_name_prefix()
+        default_container = FakeCleanContainer(f"{prefix}--default-ab12",
+                                               image_id="sha256:def456")
+        gpu_container = FakeCleanContainer(f"{prefix}--gpu-cd34",
+                                           image_id="sha256:ghi789")
+        other_project = FakeCleanContainer(f"{prefix}-2--default-ab12",
+                                           image_id="sha256:def456")
+        containers.containers = [default_container, gpu_container,
+                                 other_project]
+        install_client(FakeImages())
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+
+        project.clean_local_images()
+
+        assert default_container.events == [("stop", 10), ("remove",)]
+        assert gpu_container.events == [("stop", 10), ("remove",)]
+        # A project whose slug only shares a prefix does not match.
+        assert other_project.events == []
+
+    def test_clean_all_removes_containers_without_image(
+            self, project, containers, install_client, monkeypatch):
+        """clean --all removes dev-isolator containers even when no
+        dev-isolator image exists anymore."""
+        container = FakeCleanContainer(
+            "dev-isolator-some-project--default-abcd1234",
+            image_id="sha256:xyz000")
+        containers.containers = [container]
+        install_client(FakeImages())
+        monkeypatch.setattr(
+            "dev_isolator.utils.VERBOSITY", Verbosity.ERROR)
+
+        project.clean_all_images()
+
+        assert container.events == [("stop", 10), ("remove",)]

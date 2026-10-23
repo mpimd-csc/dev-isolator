@@ -253,6 +253,44 @@ class TestRunSettingsFromConfig:
             "/env-host": {"bind": "/env/data", "mode": "rw"},
         }
 
+    def test_environment_values_are_used_as_given(self, monkeypatch):
+        """A ``NAME=value`` entry is passed through as-is, taking
+        precedence over a variable of the same name on the host."""
+        monkeypatch.setenv("DEV_ISOLATOR_TEST_VAR", "host-value")
+
+        environment, _ = run_settings_from_config({
+            "environment": [
+                "DEV_ISOLATOR_TEST_VAR=given-value",
+                "DEV_ISOLATOR_TEST_GIVEN=value3",
+            ],
+            "volumes": [],
+        })
+
+        assert environment == {
+            "DEV_ISOLATOR_TEST_VAR": "given-value",
+            "DEV_ISOLATOR_TEST_GIVEN": "value3",
+        }
+
+    def test_environment_value_may_be_empty(self):
+        """A ``NAME=`` entry sets the variable to the empty string."""
+
+        environment, _ = run_settings_from_config({
+            "environment": ["DEV_ISOLATOR_TEST_EMPTY="],
+            "volumes": [],
+        })
+
+        assert environment == {"DEV_ISOLATOR_TEST_EMPTY": ""}
+
+    def test_invalid_environment_entries_are_skipped(self):
+        """An entry without a name is skipped."""
+
+        environment, _ = run_settings_from_config({
+            "environment": ["=value"],
+            "volumes": [],
+        })
+
+        assert environment == {}
+
     def test_empty_config_yields_empty_settings(self):
         """An empty mapping yields empty environment and volumes."""
         assert run_settings_from_config(

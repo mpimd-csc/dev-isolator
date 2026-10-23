@@ -96,6 +96,7 @@ def read_environment_and_volumes(config_file: Path) -> dict:
         environment:
           - VAR1
           - VAR2
+          - VAR3=value3
         volumes:
           - path:/path/in/container
           - path:/path/in/container:ro
@@ -186,9 +187,10 @@ def run_settings_from_config(config: dict) -> tuple[dict[str, str], dict[str, di
     and an addon ``config.<addon_name>.yaml`` to the mapping returned by
     :func:`read_environment_and_volumes`:
 
-    - ``environment`` names environment variables which are taken from
-      the host environment (variables that are not set on the host are
-      skipped with a message).
+    - ``environment`` entries are either ``NAME``, which is taken
+      from the host environment (variables that are not set on the
+      host are skipped with a message), or ``NAME=value``, where
+      ``value`` is used as-is.
     - ``volumes`` holds ``host:container[:mode]`` specs; ``ENV[VAR]``
       references are resolved (a spec referencing an unset variable is
       skipped) and then ``~`` and ``${VAR}`` in the host path are
@@ -197,18 +199,25 @@ def run_settings_from_config(config: dict) -> tuple[dict[str, str], dict[str, di
     :param config: The mapping as returned by
         :func:`read_environment_and_volumes`.
     :returns: The tuple ``(environment, volumes)`` where ``environment``
-        maps variable names to their host values and ``volumes`` maps
+        maps variable names to their values and ``volumes`` maps
         expanded host paths to ``{"bind": container_path, "mode": mode}``
         dicts, in the shape expected by the podman bindings'
         ``containers.create()``.
     """
     environment: dict[str, str] = {}
     volumes: dict[str, dict] = {}
-    for name in config["environment"]:
-        value = os.environ.get(name)
-        if value is None:
+    for entry in config["environment"]:
+        name, sep, value = entry.partition("=")
+        if name and not sep:
+            # Only a name: copy the variable from the host environment.
+            value = os.environ.get(name)
+            if value is None:
+                dprint(Verbosity.TRACE,
+                       f"Environment variable {name} is not set; skipping")
+                continue
+        elif not name:
             dprint(Verbosity.TRACE,
-                   f"Environment variable {name} is not set; skipping")
+                   f"Invalid environment entry '{entry}'; skipping")
             continue
         environment[name] = value
     for spec in config["volumes"]:
@@ -374,16 +383,17 @@ class AddonsConfiguration:
         Every enabled addon with a ``config.<addon_name>.yaml`` file
         (see :meth:`addon_config_file`) contributes its entries:
 
-        - ``environment`` names environment variables which are
+        - ``environment`` entries are either ``NAME``, which is
           taken from the host environment (variables that are not
-          set on the host are skipped with a message).
+          set on the host are skipped with a message), or
+          ``NAME=value``, where ``value`` is used as-is.
         - ``volumes`` holds ``host:container[:mode]`` specs;
           ``ENV[VAR]`` references are resolved (a spec referencing an
           unset variable is skipped), then ``~`` and ``${VAR}`` in
           the host path are expanded.
 
         :returns: The tuple ``(environment, volumes)`` where
-            ``environment`` maps variable names to their host values
+            ``environment`` maps variable names to their values
             and ``volumes`` maps expanded host paths to
             ``{"bind": container_path, "mode": mode}`` dicts, in the
             shape expected by the podman bindings'
@@ -412,8 +422,9 @@ class AddonsConfiguration:
         """Return the environment variables and volume mounts declared
         in the active ``config.yaml``.
 
-        The ``environment`` entries name variables taken from the host
-        and the ``volumes`` entries are ``host:container[:mode]`` specs;
+        The ``environment`` entries are either ``NAME`` (taken from
+        the host) or ``NAME=value`` (used as given); the ``volumes``
+        entries are ``host:container[:mode]`` specs;
         both are processed exactly like those of an addon config file
         (see :func:`run_settings_from_config`).
 
