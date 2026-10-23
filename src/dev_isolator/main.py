@@ -40,7 +40,9 @@ import argparse
 import sys
 from textwrap import dedent
 from .container_manager import ContainerDefintion
-from .utils import set_verbosity, config_path, Verbosity, dprint
+from .utils import set_verbosity, search_path, Verbosity, dprint
+from .addons_config import BUNDLE_DIR, CONFIG_FILE_NAME
+from pathlib import Path
 
 DEFAULT_SHELL = "bash"
 
@@ -101,6 +103,14 @@ The dev-isolator command can also be abbreviated by `di`
         default=DEFAULT_SHELL,
         help="Shell to start inside the container. "
              f"Default: {DEFAULT_SHELL}.",
+    )
+
+    parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        default=None,
+        help="set the name of the sub-configuration"
     )
 
     build_parser = subparsers.add_parser(
@@ -184,6 +194,7 @@ def global_options_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dev-isolator", add_help=False)
     parser.add_argument("--verbose", "-v", action="count", default=0)
     parser.add_argument("--shell", "-s", type=str, default=DEFAULT_SHELL)
+    parser.add_argument("--config", "-c", type=str, default=None)
     return parser
 
 
@@ -245,23 +256,13 @@ def parse_args(argv=None) -> argparse.Namespace:
     return args
 
 
-def shell(args) -> int:
+def shell(definition, args) -> int:
     """Handle the ``shell`` sub command.
 
     Look up the container definition of the current project and start
     an interactive shell (``args.shell``) inside its container.
     Returns the exit status of the container, or 1 on error.
     """
-    config = config_path(".devisolator")
-    if config:
-        context_dir = config.parent
-        container_file = config / "Containerfile"
-        dprint(Verbosity.INFO, f"Found .devisolator directory in {config}")
-
-        definition = ContainerDefintion(container_file, context_dir)
-    else:
-        definition = ContainerDefintion()
-
     try:
         return definition.run_container(args.shell)
     except Exception as e:
@@ -269,24 +270,13 @@ def shell(args) -> int:
         return 1
 
 
-def build(args) -> int:
+def build(definition, args) -> int:
     """Handle the ``build`` sub command.
 
     Look up the container definition of the current project and build
     its image.  Pass ``--nocache`` to podman when ``args.nocache`` is
     set.  Returns 0 on success, or 1 on error.
     """
-    config = config_path(".devisolator")
-    context_dir = config.parent
-    container_file = config / "Containerfile"
-
-    dprint(Verbosity.INFO, f"Found .devisolator directory in {config}")
-
-    if config:
-        definition = ContainerDefintion(container_file, context_dir)
-    else:
-        definition = ContainerDefintion()
-
     try:
         definition.build_container(nocache=args.nocache,
                                    keep_container_file=args.keep_container_file
@@ -315,7 +305,7 @@ def clean(args) -> int:
     return 0
 
 
-def in_container_command(command, remainder) -> int:
+def in_container_command(definition, command, remainder) -> int:
     """Run ``command`` with ``remainder`` as its arguments inside the
     container of the current project.
 
@@ -323,23 +313,63 @@ def in_container_command(command, remainder) -> int:
     which pass extra arguments through without parsing them.  Returns
     the exit status of the container, or 1 on error.
     """
-    config = config_path(".devisolator")
-    context_dir = config.parent
-    container_file = config / "Containerfile"
-
-    dprint(Verbosity.INFO, f"Found .devisolator directory in {config}")
-
-    if config:
-        definition = ContainerDefintion(container_file, context_dir)
-    else:
-        definition = ContainerDefintion()
-
     try:
         return definition.run_container(
             command=[command, *remainder])
     except Exception as e:
         print(f"An error occured: {e}", file=sys.stderr)
         return 1
+
+
+def get_path(config):
+    di_path = search_path(".devisolator")
+    bundle_path = Path(__file__).parent / BUNDLE_DIR
+
+    if not di_path:
+        context_dir = Path(__file__).parent / BUNDLE_DIR
+    else:
+        context_dir = di_path.parent
+
+    candidates_container_file: [Path] = list()
+    candidates_config_file: [Path] = list()
+    candidates_addon: [Path] = list()
+
+    if di_path and config:
+        candidates_container_file.append(di_path / config / "Containerfile")
+        candidates_config_file.append(di_path / config / CONFIG_FILE_NAME)
+        candidates_addon.append(di_path / config)
+    if di_path:
+        candidates_container_file.append(di_path / "Containerfile")
+        candidates_config_file.append(di_path / CONFIG_FILE_NAME)
+        candidates_addon.append(di_path)
+    candidates_container_file.append(bundle_path / "Containerfile")
+    candidates_config_file.append(bundle_path / CONFIG_FILE_NAME)
+    candidates_addon.append(bundle_path)
+
+    config_file = [x.resolve() for x in candidates_config_file
+                   if x.resolve().is_file()]
+    container_file = [x.resolve() for x in
+                      candidates_container_file
+                      if x.resolve().is_file()]
+    print(f"{candidates_addon}")
+    addon_search_path = [x.resolve() for x in candidates_addon
+                         if x.resolve().is_dir()]
+
+    if len(container_file) < 1:
+        raise FileNotFoundError("No Containerfile found in "
+                                f"{candidates_container_file}")
+    container_file = container_file[0]
+
+    if len(config_file) < 1:
+        raise FileNotFoundError("No config file found in "
+                                f"{candidates_config_file}")
+    config_file = config_file[0]
+
+    dprint(Verbosity.INFO, f"Containerfile found at {container_file}")
+    dprint(Verbosity.INFO, f"Config file found at {config_file}")
+    dprint(Verbosity.INFO, f"Addons seach path: {addon_search_path}")
+    dprint(Verbosity.INFO, f"Context directory  {context_dir}")
+    return context_dir, container_file, config_file, addon_search_path
 
 
 def main() -> int:
@@ -354,21 +384,28 @@ def main() -> int:
 
     set_verbosity(Verbosity(args.verbose))
 
-    if args.command == "shell":
-        return shell(args)
-    if args.command == "build":
-        return build(args)
+    context_dir, container_file, config_file, addon_search_path = get_path(args.config)
+
     if args.command == "clean":
         return clean(args)
+
+    definition = ContainerDefintion(context_dir, container_file, config_file,
+                                    args.config)
+
+    if args.command == "shell":
+        return shell(definition, args)
+    if args.command == "build":
+        return build(definition)
     if args.command == "opencode":
-        return in_container_command("opencode", args.opencode_args)
+        return in_container_command(definition, "opencode", args.opencode_args)
     if args.command == "claude":
-        return in_container_command("claude", args.claude_args)
+        return in_container_command(definition, "claude", args.claude_args)
     if args.command == "run":
         if args.run_args:
-            return in_container_command(args.run_args[0], args.run_args[1:])
+            return in_container_command(definition, args.run_args[0],
+                                        args.run_args[1:])
         # Without a command, behave like ``shell``.
-        return shell(args)
+        return shell(definition.args)
     return 0
 
 

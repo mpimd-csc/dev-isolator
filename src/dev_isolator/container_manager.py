@@ -89,7 +89,7 @@ class ContainerDefintion:
     the current directory always takes precedence.
     """
 
-    def __init__(self, container_file=None, context_dir=None):
+    def __init__(self, context_dir, container_file, config_file, tag=None):
         """Set up the container definition.
 
         :param container_file: Optional path to a custom Containerfile.
@@ -101,25 +101,21 @@ class ContainerDefintion:
         :raises FileNotFoundError: if the resolved Containerfile does
             not exist.
         """
-        if context_dir:
-            self.context_dir = Path(context_dir)
+        self.context_dir = Path(context_dir)
+        self.container_file = Path(container_file)
+        self.config_file = Path(config_file)
+        if tag:
+            self.tag = tag
         else:
-            self.context_dir = Path(__file__).parent / BUNDLE_DIR
+            self.tag = "default"
 
-        if container_file:
-            self.container_file = Path(container_file)
-        else:
-            self.container_file = self.context_dir / "Containerfile"
-
-        if not self.container_file.is_file():
-            raise FileNotFoundError("No Containerfile found at"
-                                    f"{self.container_file}")
         self.bundled_dir = Path(__file__).parent / BUNDLE_DIR
         self.addons = AddonsConfiguration(self.context_dir, self.bundled_dir)
 
-        dprint(Verbosity.INFO, f"Container File: {self.container_file}")
-        dprint(Verbosity.INFO, f"Context Dir:    {self.context_dir}")
-        dprint(Verbosity.INFO, f"Bundle Dir:     {self.bundled_dir}")
+        dprint(Verbosity.DEBUG, f"Containerfile: {self.container_file}")
+        dprint(Verbosity.DEBUG, f"Context dir:   {self.context_dir}")
+        dprint(Verbosity.DEBUG, f"Config file:   {self.config_file}")
+        dprint(Verbosity.DEBUG, f"Bundle dir:    {self.bundled_dir}")
 
     def merged_container_file_content(self) -> str:
         """Return the used Containerfile with all addons appended.

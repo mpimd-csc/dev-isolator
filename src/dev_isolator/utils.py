@@ -58,7 +58,7 @@ def dprint(level: Verbosity | int, *args, **kwargs) -> None:
         print(*args, **kwargs)
 
 
-def config_path(pattern):
+def search_path(pattern):
     """Search for ``pattern`` upwards from the current directory.
 
     Walks up the directory tree starting at the current working
