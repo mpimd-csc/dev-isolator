@@ -38,13 +38,7 @@ in a terminal. Afterwards, one can proceed with the installation of
 `dev-isolator`.
 
 
-Install from PyPI:
-
-```bash
-pip install dev-isolator
-```
-
-Or install from a source checkout for development:
+Install from a source checkout for development:
 
 ```bash
 pip install -e .
