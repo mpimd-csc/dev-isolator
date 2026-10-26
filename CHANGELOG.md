@@ -13,3 +13,4 @@ Version 0.1
   ``dev-isolator opencode --port 4096``) verbatim to it. Global
   verbosity flags work before the subcommand
   (``dev-isolator -vvv opencode``).
+* Add WaitSpinner 

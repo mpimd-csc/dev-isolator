@@ -25,6 +25,7 @@ import jinja2
 from pathlib import Path
 from .addons_config import AddonsConfiguration, BUNDLE_DIR
 from .utils import dprint, Verbosity, get_verbosity
+from .waitspinner import WaitSpinner
 
 IMAGE_PREFIX = "dev-isolator"
 OCI_IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
@@ -291,15 +292,16 @@ class ContainerDefintion:
                     merged_container_file.flush()
 
                     dprint(Verbosity.INFO, "Building image ...")
-                    image, build_logs = client.images.build(
-                        path=str(self.context_dir),
-                        dockerfile=merged_container_file.name,
-                        tag=tag,
-                        rm=True,
-                        forcerm=True,
-                        pull=True,
-                        nocache=nocache
-                        )
+                    with WaitSpinner(f"Building image {tag}"):
+                        image, build_logs = client.images.build(
+                            path=str(self.context_dir),
+                            dockerfile=merged_container_file.name,
+                            tag=tag,
+                            rm=True,
+                            forcerm=True,
+                            pull=True,
+                            nocache=nocache
+                            )
                     self._remove_superseded_image(
                         client, tag, previous_id, image.id)
         except podman.errors.BuildError as e:
