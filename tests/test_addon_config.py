@@ -7,13 +7,11 @@ import os
 from pathlib import Path
 
 import pytest
-import yaml
 from dev_isolator.addons_config import parse_volume_spec, \
     read_environment_and_volumes, resolve_env_references, \
     run_settings_from_config
 from dev_isolator.base_image import BaseImage
 from dev_isolator.container_manager import ContainerDefintion
-from dev_isolator.utils import Verbosity
 
 
 @pytest.fixture

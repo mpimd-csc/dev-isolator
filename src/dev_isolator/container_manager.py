@@ -467,11 +467,6 @@ class ContainerDefintion:
            ``dev-isolator:<slug_of_the_current_path>--<tag>``."""
         return f"{IMAGE_PREFIX}:{self.current_path_slug()}--{self.tag}"
 
-    def image_name_prefix(self) -> str:
-        """Return the image name prefix
-           ``dev-isolator:<slug_of_the_current_path>``."""
-        return f"{IMAGE_PREFIX}:{self.current_path_slug()}"
-
     def project_container_name_prefix(self) -> str:
         """Return the container name prefix shared by every tag
            variant of the current project

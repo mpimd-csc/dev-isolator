@@ -41,7 +41,6 @@ def set_verbosity(level: Verbosity | int) -> None:
 
 def get_verbosity() -> int:
     """Return the current global verbosity level."""
-    global VERBOSITY
     return VERBOSITY
 
 

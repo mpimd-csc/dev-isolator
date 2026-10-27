@@ -14,9 +14,6 @@ from pathlib import Path
 #: is ``dev-isolator:<slug_of_the_project_path>--<tag>``).
 IMAGE_PREFIX = "dev-isolator"
 
-#: OCI media type expected for the built images.
-OCI_IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
-
 #: Length of the random suffix of created container names, so several
 #: containers of the same project can run in parallel.
 CONTAINER_NAME_SUFFIX_LENGTH = 8
