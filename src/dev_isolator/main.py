@@ -44,7 +44,7 @@ import os
 from textwrap import dedent
 from .container_manager import ContainerDefintion
 from .utils import set_verbosity, search_path, Verbosity, dprint
-from .addons_config import BUNDLE_DIR, CONFIG_FILE_NAME
+from .constants import BUNDLE_DIR, CONFIG_FILE_NAME
 from pathlib import Path
 
 DEFAULT_SHELL = "bash"

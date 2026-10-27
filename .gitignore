@@ -5,3 +5,5 @@ build
 dist
 AGENTS.md
 .containerfile*
+*.swp
+

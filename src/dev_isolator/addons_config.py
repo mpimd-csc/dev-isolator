@@ -19,21 +19,14 @@ SPDX-License-Identifier: GPL-3.0-or-later
 import os
 import re
 from pathlib import Path
-
+from .constants import (ADDON_FILE_PREFIX, ADDON_FILE_SUFFIX,
+                        ADDON_CONFIG_FILE_PREFIX, ADDON_CONFIG_FILE_SUFFIX,
+                        DEV_ISOLATOR_DIR)
 import yaml
 
 from .utils import Verbosity, dprint
 
 ENV_REFERENCE_PATTERN = re.compile(r"ENV\[(\w+)\]")
-DEV_ISOLATOR_DIR = ".devisolator"
-CONFIG_FILE_NAME = "config.yaml"
-ADDON_CONFIG_FILE_PREFIX = "config."
-ADDON_CONFIG_FILE_SUFFIX = ".yaml"
-BUNDLE_DIR = "data"
-
-ADDON_FILE_PREFIX = "addon."
-ADDON_FILE_SUFFIX = ".jinja2"
-
 # Sentinel marking a not-yet-computed cached value.
 _UNSET = object()
 

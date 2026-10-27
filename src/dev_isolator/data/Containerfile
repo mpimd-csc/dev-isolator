@@ -1,4 +1,4 @@
-FROM ubuntu:26.04
+FROM localhost/dev-isolator-ubuntu:26.04
 
 # Install baseline apt packages and Node.js 20 LTS via NodeSource.
 # apt cache is intentionally left available so AI tools can install

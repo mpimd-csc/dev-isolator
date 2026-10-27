@@ -13,7 +13,9 @@ dependencies = [
     "pytest",
     "podman",
     "pyyaml",
-    "jinja2"
+    "jinja2",
+    "tree-sitter",
+    "tree-sitter-containerfile"
 ]
 
 [project.scripts]

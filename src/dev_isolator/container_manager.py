@@ -9,28 +9,20 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 import os
-import pwd
 import random
 import re
 import string
 import subprocess
 import sys
 import time
-import json
-from tempfile import NamedTemporaryFile, mkstemp
-from functools import lru_cache
-
 import podman.errors
-import jinja2
 from pathlib import Path
-from .addons_config import AddonsConfiguration, BUNDLE_DIR
-from .utils import dprint, Verbosity, get_verbosity
-from .waitspinner import WaitSpinner
-
-IMAGE_PREFIX = "dev-isolator"
-OCI_IMAGE_MANIFEST = "application/vnd.oci.image.manifest.v1+json"
-CONTAINER_NAME_SUFFIX_LENGTH = 8
-TEMPLATES_DIR = Path(__file__).parent / "templates"
+from .addons_config import AddonsConfiguration
+from .utils import dprint, Verbosity
+from .constants import (IMAGE_PREFIX,
+                        CONTAINER_NAME_SUFFIX_LENGTH,
+                        BUNDLE_DIR)
+from .container_file import ContainerFile
 
 
 def slugify_path(path: str | os.PathLike) -> str:
@@ -43,25 +35,6 @@ def slugify_path(path: str | os.PathLike) -> str:
     """
     text = str(path)
     return re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
-
-
-@lru_cache(maxsize=1)
-def _jinja_environment() -> jinja2.Environment:
-    """Return the (cached) shared jinja2 environment."""
-    return jinja2.Environment(
-        loader=jinja2.FileSystemLoader(TEMPLATES_DIR),
-        # Containerfile instructions, not HTML: no escaping.
-        autoescape=False,
-        keep_trailing_newline=True,
-    )
-
-
-@lru_cache(maxsize=1)
-def _host_user_template() -> jinja2.Template:
-    """Return the (cached) jinja2 template for the host user block."""
-    return _jinja_environment().get_template(
-        "host_user.containerfile.jinja2")
-
 
 class ContainerDefintion:
     """Define, build and run the dev-isolator container for a project.
@@ -126,135 +99,11 @@ class ContainerDefintion:
         dprint(Verbosity.DEBUG, f"Bundle dir:    {self.bundled_dir}")
         dprint(Verbosity.DEBUG, f"Addon search:  {self.addons_search_path}")
 
-    def merged_container_file_content(self) -> str:
-        """Return the used Containerfile with all addons appended.
-
-        Starts with the content of ``self.container_file`` and appends
-        every addon file from :meth:`AddonsConfiguration.addon_files`
-        rendered as a jinja2 template (see
-        :meth:`host_user_containerfile_content` for the template
-        variables), separated by a comment naming the addon file.
-
-        Afterwards a host user (same UID, GID and username as the
-        invoking user, see :meth:`host_username`) is created and made
-        the image's default user, so shells and exec sessions run as
-        that user. It requires a Debian-style base image (``useradd``
-        and ``getent`` must exist).
-        """
-        text = self.container_file.read_text(encoding="utf-8")
-        text += "\n\n" + self.host_user_containerfile_content()
-        for addon in self.addons.addon_files():
-            text += f"\n\n# --- appended from {addon.name} ---\n"
-            template = _jinja_environment().from_string(
-                addon.read_text(encoding="utf-8"))
-            text += self.render_template(template).rstrip("\n") + "\n"
-        text += "\n\n# --- workdir ---\n"
-        text += f"USER {ContainerDefintion.host_username()}\n"
-        text += "WORKDIR /workspace\n"
-        return text
-
-    @staticmethod
-    def render_template(template: jinja2.Template) -> str:
-        """Render a Containerfile jinja2 template with the host
-           context.
-
-        :param template: The template to render.
-        :returns: The rendered template text.
-        """
-        return template.render(
-            uid=os.getuid(),
-            gid=os.getgid(),
-            username=ContainerDefintion.host_username(),
-            home_dir=Path.home()
-        )
-
-    @staticmethod
-    def host_username() -> str:
-        """Return a username usable in the container for the host user.
-
-        Uses the username of the invoking host user (via
-        :func:`os.getuid`); invalid characters are replaced by ``_``.
-        When no matching host user is known or the name is not usable
-        for :command:`useradd`, a name starting with a letter is
-        derived from the UID.
-        """
-        uid = os.getuid()
-        try:
-            name = pwd.getpwuid(uid).pw_name
-        except KeyError:
-            name = ""
-        name = re.sub(r"[^a-zA-Z0-9_-]", "_", name).strip("-")
-        if not name or not name[0].isalpha():
-            name = f"user{uid}"
-        return name
-
-    def host_user_containerfile_content(self) -> str:
-        """Return the Containerfile instructions adding the host user.
-
-        Renders the ``templates/host_user.containerfile.jinja2``
-        template shipped with dev-isolator (see :const:`TEMPLATES_DIR`)
-        with the host context (see :meth:`render_template`), as do the
-        ``addon.*`` files in :meth:`merged_container_file_content`.
-
-        The template removes any pre-existing user/group occupying
-        those properties from the image and then creates a user whose
-        UID, GID and username match those of the invoking host user,
-        making it the image's default user.
-        """
-        return self.render_template(_host_user_template())
-
-    def _current_image_id(self, client, tag):
-        """Return the id of the image tagged ``tag``, or ``None``.
-
-        :param client: Connected :class:`podman.PodmanClient`.
-        :param tag: Name (tag) of the image to look up.
-        """
-        try:
-            return client.images.get(tag).id
-        except (podman.errors.NotFound, podman.errors.ImageNotFound):
-            dprint(Verbosity.INFO, f"No existing image {tag}")
-            return None
-
-    def _remove_superseded_image(self, client, tag, previous_id, new_id):
-        """Remove the previous image with ``tag``, if the build
-           replaced it.
-
-        When podman applies a build's tag to a new image, the previous
-        image loses the tag and remains as a dangling artifact. To
-        avoid this, it is removed (by id) after the build - but only
-        when the build actually produced a new image id.
-
-        :param client: Connected :class:`podman.PodmanClient`.
-        :param tag: Name (tag) of the image that was built.
-        :param previous_id: Id of the image tagged ``tag`` before the
-            build, or ``None`` when there was none.
-        :param new_id: Id of the image the build produced.
-        :raises RuntimeError: if podman refuses to remove the image.
-        """
-        if previous_id is None:
-            dprint(Verbosity.INFO, f"No previous image {tag} to remove")
-            return
-        if previous_id == new_id:
-            dprint(Verbosity.INFO, f"Image {tag} unchanged "
-                   f"({previous_id}); not removing")
-            return
-        dprint(Verbosity.INFO, f"Removing superseded image {tag} "
-               f"({previous_id})")
-        try:
-            client.images.remove(previous_id, force=True)
-            dprint(Verbosity.INFO, f"Removed image {tag}")
-        except podman.errors.APIError as e:
-            raise RuntimeError(f"Failed to remove image {tag}: {e}") from e
-
-    def _safe_container_file(self):
-        merged_content = self.merged_container_file_content()
-        with NamedTemporaryFile("w", prefix="Containerfile-fail-",
-                                dir=os.getcwd(),
-                                delete=False,
-                                delete_on_close=False) as fp:
-            filename = fp.name
-            fp.write(merged_content)
-        dprint(Verbosity.ERROR, f"Kept generated Containerfile as {filename}")
+        self.container_file_obj = ContainerFile(self.context_dir,
+                                                self.container_file,
+                                                self.config_file,
+                                                self.addons_search_path,
+                                                self.image_name())
 
     def build_container(self, nocache=False, keep_container_file=False):
         """Build the image defined by this container definition.
@@ -274,72 +123,8 @@ class ContainerDefintion:
             superseded image cannot be removed.
         """
 
-        tag = self.image_name()
-        merged_content = self.merged_container_file_content()
-
-        # Write the merged Containerfile into the build context (as a
-        # hidden temporary file), so podman-py's
-        # ``prepare_containerfile`` does not copy it there itself and
-        # leave a stale ``.containerfile.*`` artifact behind.
-        fd, temp_name = mkstemp(dir=self.context_dir,
-                                prefix=".containerfile.")
-        temp_container_file = Path(temp_name)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fp:
-                fp.write(merged_content)
-                # Make sure the content reaches disk before podman
-                # reads the file during the build.
-                fp.flush()
-                os.fsync(fp.fileno())
-        except BaseException:
-            temp_container_file.unlink(missing_ok=True)
-            raise
-
-        try:
-            with podman.PodmanClient() as client:
-                previous_id = self._current_image_id(client, tag)
-                for addon in self.addons.addon_files():
-                    dprint(Verbosity.INFO, f"Appending addon: {addon}")
-                if get_verbosity() >= Verbosity.TRACE:
-                    for line in merged_content.splitlines():
-                        print(f"[Containerfile] {line}")
-                dprint(Verbosity.INFO, "Created temporary Containerfile "
-                       f"{temp_container_file}")
-
-                dprint(Verbosity.INFO, "Building image ...")
-                with WaitSpinner(f"Building image {tag}"):
-                    image, build_logs = client.images.build(
-                        path=str(self.context_dir),
-                        dockerfile=str(temp_container_file),
-                        tag=tag,
-                        rm=True,
-                        forcerm=True,
-                        pull=True,
-                        nocache=nocache
-                        )
-                self._remove_superseded_image(
-                    client, tag, previous_id, image.id)
-        except podman.errors.BuildError as e:
-            if keep_container_file:
-                self._safe_container_file()
-            raise RuntimeError(f"Failed to build image {tag}: {e}") from e
-        except podman.errors.APIError as e:
-            if keep_container_file:
-                self._safe_container_file()
-            raise RuntimeError(f"Podman API error while building {tag}: {e}") \
-                from e
-        finally:
-            temp_container_file.unlink(missing_ok=True)
-
-        if get_verbosity() >= Verbosity.TRACE:
-            for entry in build_logs:
-                if isinstance(entry, bytes):
-                    entry = json.loads(
-                        entry.decode(errors='replace').strip())
-                for stream in entry.get("stream", "").splitlines():
-                    dprint(Verbosity.TRACE, f"[build] {stream}")
-
-        dprint(Verbosity.INFO, f"Built image {image.id} tagged {tag}")
+        image = self.container_file_obj.build(nocache=nocache,
+                                              keep_container_file=keep_container_file)
         return image
 
     def run_container(self, interactive_shell: str = "bash",
