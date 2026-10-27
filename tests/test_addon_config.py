@@ -11,20 +11,24 @@ import yaml
 from dev_isolator.addons_config import parse_volume_spec, \
     read_environment_and_volumes, resolve_env_references, \
     run_settings_from_config
+from dev_isolator.base_image import BaseImage
 from dev_isolator.container_manager import ContainerDefintion
 from dev_isolator.utils import Verbosity
 
 
 @pytest.fixture
-def definition(tmp_path: Path) -> ContainerDefintion:
+def definition(tmp_path: Path, monkeypatch) -> ContainerDefintion:
     """A container definition for a minimal project with the
     (bundled) opencode and claude addons disabled."""
     config_dir = tmp_path / ".devisolator"
     config_dir.mkdir()
     container_file = config_dir / "Containerfile"
-    container_file.write_text("FROM ubuntu:26.04\n")
+    container_file.write_text(
+        "FROM localhost/dev-isolator-ubuntu:26.04\n")
     (config_dir / "addon.mine").write_text("RUN echo custom\n")
     (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
+    # The base image build is not part of these tests.
+    monkeypatch.setattr(BaseImage, "build", lambda self, image: None)
     return ContainerDefintion(tmp_path, container_file,
                               config_dir / "config.yaml", [config_dir])
 
@@ -414,8 +418,10 @@ class TestRunContainerSettings:
     """Test that addon settings reach the container create call."""
 
     @pytest.fixture
-    def creation_stub(self, monkeypatch):
-        """Stub out the build step of run_container."""
+    def creation_stub(self, tmp_path: Path, monkeypatch):
+        """Stub out the base image and image build steps, so only the
+        container creation is exercised."""
+        monkeypatch.setattr(BaseImage, "build", lambda self, image: None)
         monkeypatch.setattr(
             ContainerDefintion, "build_container",
             lambda self, nocache=False: None)
@@ -426,7 +432,8 @@ class TestRunContainerSettings:
         config files are passed to containers.create()."""
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
-        (config_dir / "Containerfile").write_text("FROM ubuntu:26.04\n")
+        (config_dir / "Containerfile").write_text(
+            "FROM localhost/dev-isolator-ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
         (config_dir / "config.mine.yaml").write_text(
@@ -459,7 +466,8 @@ class TestRunContainerSettings:
         an empty environment and only the workspace volume."""
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
-        (config_dir / "Containerfile").write_text("FROM ubuntu:26.04\n")
+        (config_dir / "Containerfile").write_text(
+            "FROM localhost/dev-isolator-ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
 
@@ -486,7 +494,8 @@ class TestRunContainerSettings:
         containers.create()."""
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
-        (config_dir / "Containerfile").write_text("FROM ubuntu:26.04\n")
+        (config_dir / "Containerfile").write_text(
+            "FROM localhost/dev-isolator-ubuntu:26.04\n")
         (config_dir / "config.yaml").write_text(
             "environment:\n  - DEV_ISOLATOR_TEST_VAR\n"
             "volumes:\n  - /host/data:/container/data:ro\n")
@@ -517,7 +526,8 @@ class TestRunContainerSettings:
         workspace mount always wins."""
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
-        (config_dir / "Containerfile").write_text("FROM ubuntu:26.04\n")
+        (config_dir / "Containerfile").write_text(
+            "FROM localhost/dev-isolator-ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text(
             "addons:\n  - mine\n"
