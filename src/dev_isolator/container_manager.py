@@ -259,6 +259,12 @@ class ContainerDefintion:
     def build_container(self, nocache=False, keep_container_file=False):
         """Build the image defined by this container definition.
 
+        The merged Containerfile is written as a temporary file
+        directly into the build context, so podman-py does not copy it
+        itself (its copy, ``.containerfile.<random>``, would be left
+        behind as an artifact in the build context). The temporary
+        file is removed again after the build.
+
         If an image with the same tag (see :meth:`image_name`) existed
         before, it is removed after the build - but only when the
         build replaced it, i.e. its image id changed - so no old image
@@ -271,6 +277,24 @@ class ContainerDefintion:
         tag = self.image_name()
         merged_content = self.merged_container_file_content()
 
+        # Write the merged Containerfile into the build context (as a
+        # hidden temporary file), so podman-py's
+        # ``prepare_containerfile`` does not copy it there itself and
+        # leave a stale ``.containerfile.*`` artifact behind.
+        fd, temp_name = mkstemp(dir=self.context_dir,
+                                prefix=".containerfile.")
+        temp_container_file = Path(temp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fp:
+                fp.write(merged_content)
+                # Make sure the content reaches disk before podman
+                # reads the file during the build.
+                fp.flush()
+                os.fsync(fp.fileno())
+        except BaseException:
+            temp_container_file.unlink(missing_ok=True)
+            raise
+
         try:
             with podman.PodmanClient() as client:
                 previous_id = self._current_image_id(client, tag)
@@ -279,31 +303,22 @@ class ContainerDefintion:
                 if get_verbosity() >= Verbosity.TRACE:
                     for line in merged_content.splitlines():
                         print(f"[Containerfile] {line}")
-                with NamedTemporaryFile(
-                        "w",
-                        encoding="utf-8",
-                        prefix="dev-isolator-containerfile-"
-                        ) as merged_container_file:
-                    dprint(Verbosity.INFO, "Created temporary Containerfile "
-                           f"{merged_container_file.name}")
-                    merged_container_file.write(merged_content)
-                    # Make sure the content reaches disk before podman
-                    # reads the file during the build.
-                    merged_container_file.flush()
+                dprint(Verbosity.INFO, "Created temporary Containerfile "
+                       f"{temp_container_file}")
 
-                    dprint(Verbosity.INFO, "Building image ...")
-                    with WaitSpinner(f"Building image {tag}"):
-                        image, build_logs = client.images.build(
-                            path=str(self.context_dir),
-                            dockerfile=merged_container_file.name,
-                            tag=tag,
-                            rm=True,
-                            forcerm=True,
-                            pull=True,
-                            nocache=nocache
-                            )
-                    self._remove_superseded_image(
-                        client, tag, previous_id, image.id)
+                dprint(Verbosity.INFO, "Building image ...")
+                with WaitSpinner(f"Building image {tag}"):
+                    image, build_logs = client.images.build(
+                        path=str(self.context_dir),
+                        dockerfile=str(temp_container_file),
+                        tag=tag,
+                        rm=True,
+                        forcerm=True,
+                        pull=True,
+                        nocache=nocache
+                        )
+                self._remove_superseded_image(
+                    client, tag, previous_id, image.id)
         except podman.errors.BuildError as e:
             if keep_container_file:
                 self._safe_container_file()
@@ -313,6 +328,8 @@ class ContainerDefintion:
                 self._safe_container_file()
             raise RuntimeError(f"Podman API error while building {tag}: {e}") \
                 from e
+        finally:
+            temp_container_file.unlink(missing_ok=True)
 
         if get_verbosity() >= Verbosity.TRACE:
             for entry in build_logs:
