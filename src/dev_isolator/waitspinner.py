@@ -28,7 +28,7 @@ class WaitSpinner:
             slow_operation()
 
     When the operation finishes, the spinning line is replaced by a
-    summary line starting with the 😊 emoticon (operation and total
+    summary line starting with the ✨ sparkles (operation and total
     duration), so the user sees the operation completed and the cursor
     ends up on a clean line for subsequent output.
 
@@ -80,7 +80,7 @@ class WaitSpinner:
         if self._thread is not None:
             self._thread.join()
         if exc_type is None:
-            summary = f"😊 {self._message} done in " \
+            summary = f"✨ {self._message} done in " \
                       f"{time.monotonic() - self._started:.1f}s"
             if self._animate:
                 # Overwrite the spinning line with the ready emoticon.
