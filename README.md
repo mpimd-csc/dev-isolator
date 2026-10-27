@@ -325,7 +325,7 @@ The configuration of a containerized dev environment lives in the
   additional volume mounts for the container:
 
   ```yaml
-  addons_enabled:
+  addons:
     - opencode
     - claude
   environment:
@@ -354,7 +354,7 @@ Configuration resolution rules:
   found is used: the file in `<project>/.devisolator/` if it exists,
   otherwise the one bundled with dev-isolator. Only one is active; the
   two are never merged.
-- The `addons_enabled` list names the addons to append to the
+- The `addons` list names the addons to append to the
   Containerfile. Without any `config.yaml` at all, every
   `addon.*.jinja2` file is enabled.
 - The `environment` and `volumes` sections of `config.yaml` are
@@ -428,7 +428,7 @@ cat > .devisolator/Containerfile <<'EOF'
 FROM ubuntu:24.04
 RUN apt-get update && apt-get install --yes build-essential python3-pip python3-venv
 EOF
-echo "addons_enabled: [opencode]" > .devisolator/config.yaml
+echo "addons: [opencode]" > .devisolator/config.yaml
 
 dev-isolator build          # build dev-isolator:home-user-projects-my-project--default
 dev-isolator                # open a bash inside the container
@@ -473,7 +473,7 @@ Selects the addons to append and, optionally, passes environment
 variables and extra volume mounts to the container:
 
 ```yaml
-addons_enabled:
+addons:
   - python
   - opencode
 environment:
@@ -484,7 +484,7 @@ volumes:
   - /tmp:/host_tmp
 ```
 
-- `addons_enabled` lists the addon names to append (see
+- `addons` lists the addon names to append (see
   `addon.<name>.jinja2` below and the bundled `opencode`/`claude`
   addons). Without this file, every `addon.*.jinja2` is enabled.
 - `environment` entries are either `NAME` (a host variable to forward

@@ -24,7 +24,7 @@ def definition(tmp_path: Path) -> ContainerDefintion:
     container_file = config_dir / "Containerfile"
     container_file.write_text("FROM ubuntu:26.04\n")
     (config_dir / "addon.mine").write_text("RUN echo custom\n")
-    (config_dir / "config.yaml").write_text("addons_enabled:\n  - mine\n")
+    (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
     return ContainerDefintion(tmp_path, container_file,
                               config_dir / "config.yaml", [config_dir])
 
@@ -329,7 +329,7 @@ class TestConfigRunSettings:
         """A config.yaml without environment/volumes yields empty
         settings."""
         config_dir = tmp_path / ".devisolator"
-        (config_dir / "config.yaml").write_text("addons_enabled:\n  - mine\n")
+        (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
 
         assert definition.addons.config_run_settings() == ({}, {})
 
@@ -428,7 +428,7 @@ class TestRunContainerSettings:
         config_dir.mkdir()
         (config_dir / "Containerfile").write_text("FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("addons_enabled:\n  - mine\n")
+        (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
         (config_dir / "config.mine.yaml").write_text(
             "environment:\n  - DEV_ISOLATOR_TEST_VAR\n"
             "volumes:\n  - /host/data:/container/data:ro\n")
@@ -461,7 +461,7 @@ class TestRunContainerSettings:
         config_dir.mkdir()
         (config_dir / "Containerfile").write_text("FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("addons_enabled:\n  - mine\n")
+        (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
 
         containers = FakeContainers()
         monkeypatch.setattr(
@@ -520,7 +520,7 @@ class TestRunContainerSettings:
         (config_dir / "Containerfile").write_text("FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text(
-            "addons_enabled:\n  - mine\n"
+            "addons:\n  - mine\n"
             "environment:\n  - DEV_ISOLATOR_TEST_VAR\n"
             "volumes:\n  - /host/data:/from/config:rw\n")
         (config_dir / "config.mine.yaml").write_text(

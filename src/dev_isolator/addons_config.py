@@ -55,14 +55,14 @@ def read_enabled_addons(config_file: Path) -> set[str]:
 
     The file is expected to have the shape::
 
-        addons_enabled:
+        addons:
           - opencode
           - my-addon
 
     :param config_file: Path to the config file (``config.yaml``).
     :returns: The set of enabled addon names (possibly empty).
     :raises RuntimeError: if the file is not valid YAML, does not
-        contain a mapping, or the ``addons_enabled`` entry is not a
+        contain a mapping, or the ``addons`` entry is not a
         list.
     """
     try:
@@ -75,14 +75,14 @@ def read_enabled_addons(config_file: Path) -> set[str]:
     if not isinstance(data, dict):
         raise RuntimeError(
             f"Invalid config file {config_file}: "
-            "expected a mapping with an 'addons_enabled' key")
-    enabled = data.get("addons_enabled")
+            "expected a mapping with an 'addons' key")
+    enabled = data.get("addons")
     if enabled is None:
         return set()
     if not isinstance(enabled, list):
         raise RuntimeError(
             f"Invalid config file {config_file}: "
-            "'addons_enabled' must be a list of addon names")
+            "'addons' must be a list of addon names")
     return {str(name) for name in enabled}
 
 

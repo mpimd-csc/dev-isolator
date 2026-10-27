@@ -83,7 +83,7 @@ class TestMergedContainerfile:
         container_file = config_dir / "Containerfile"
         container_file.write_text("FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("addons_enabled:\n  - mine\n")
+        (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
 
         definition = ContainerDefintion(
             tmp_path, container_file, config_dir / "config.yaml",
@@ -123,7 +123,7 @@ class TestMergedContainerfile:
         container_file = config_dir / "Containerfile"
         container_file.write_text("FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("addons_enabled:\n  - mine\n")
+        (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
 
         definition = ContainerDefintion(
             tmp_path, container_file, config_dir / "config.yaml",
@@ -198,7 +198,7 @@ class TestMergedContainerfile:
             "RUN echo user={{ username }} uid={{ uid }} "
             "home={{ home_dir }}\n")
         (config_dir / "config.yaml").write_text(
-            "addons_enabled:\n  - rendered\n")
+            "addons:\n  - rendered\n")
 
         definition = ContainerDefintion(
             tmp_path, container_file, config_dir / "config.yaml",
@@ -292,7 +292,7 @@ class TestBuildTraceOutput:
         container_file.write_text("FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text(
-            "addons_enabled:\n  - mine\n")
+            "addons:\n  - mine\n")
         return ContainerDefintion(tmp_path, container_file,
                                   config_dir / "config.yaml",
                                   [config_dir])
