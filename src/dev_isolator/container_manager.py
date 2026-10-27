@@ -45,15 +45,17 @@ class ContainerDefintion:
     the slug of the current working directory (see
     :func:`slugify_path`).
 
-    When the image is built, every ``addon.<name>.jinja2`` file whose
-    name is enabled in a ``config.yaml`` file is rendered as a jinja2
-    template and appended to the used ``Containerfile``. The addon
-    templates receive the same variables as the host user template
-    (see :meth:`host_user_containerfile_content`). Only the first
-    found ``config.yaml`` is used:
-    the ``.devisolator/config.yaml`` in the build context when it
-    exists, otherwise the one bundled with dev-isolator. Without any
-    ``config.yaml``, every ``addon.*`` file is appended.
+    When the base image is built (see
+    :class:`dev_isolator.base_image.BaseImage`), every
+    ``addon.<name>.jinja2`` file whose name is enabled in a
+    ``config.yaml`` file is rendered as a jinja2 template and appended
+    to the base image's Containerfile. The addon templates receive the
+    same variables as the host user template (see
+    :func:`dev_isolator.base_image.render_template`). Only the first
+    found ``config.yaml`` is used: the ``.devisolator/config.yaml`` in
+    the build context when it exists, otherwise the one bundled with
+    dev-isolator. Without any ``config.yaml``, every ``addon.*`` file
+    is appended.
 
     When a container is run, the environment variables and volume
     mounts declared directly in the active ``config.yaml`` and, in
@@ -77,7 +79,11 @@ class ContainerDefintion:
             directory. When ``None``, the package's bundled
             ``data`` directory is used.
         :raises FileNotFoundError: if the resolved Containerfile does
-            not exist.
+            not exist or the referenced base image has no matching
+            base Containerfile.
+        :raises RuntimeError: if the Containerfile's ``FROM``
+            instruction does not identify a dev-isolator base image or
+            a podman build fails (see :class:`ContainerFile`).
         """
         self.context_dir = Path(context_dir)
         self.container_file = Path(container_file)

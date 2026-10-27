@@ -1,4 +1,7 @@
-"""Manage container definitions (build/create) for dev-isolator.
+"""Podman helpers shared by the image build and cleanup code.
+
+Provides the image id lookup and the removal of images superseded by a
+new build with the same tag, keeping podman free of dangling images.
 
 Copyright (C) 2026 Martin Köhler
 

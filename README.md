@@ -14,6 +14,14 @@ directory is mounted into the container at `/workspace`. This keeps
 build tools, caches and dependencies isolated from the host, while the
 sources stay in place.
 
+Images are built in two stages (see
+[Base images](#base-images)): first, a *base image* carrying your host
+user and the enabled addons is built from a Containerfile bundled with
+dev-isolator (whenever a dev-isolator command runs; the build cache
+keeps this cheap); the project's `Containerfile` must then be
+based on this base image (`FROM localhost/dev-isolator-ubuntu:26.04`,
+for example). The project image is built on top of it.
+
 Requirements:
 
 - Linux with a working podman installation (the podman socket/service
@@ -93,17 +101,28 @@ dev-isolator build
 
 Builds the image of the current project:
 
+- The base image referenced by the project's `Containerfile` is built
+  first; this happens on every invocation, but the build cache keeps
+  it cheap when nothing changed. The base image is built from a
+  Containerfile bundled with dev-isolator, merging the base setup, the
+  appended host user block and the enabled addon templates, and it is
+  tagged `dev-isolator-<name>:<tag>` (see
+  [Base images](#base-images)). The base image is shared, so it is
+  only built once per base setup; a project `Containerfile` change
+  does not affect it, but addon or `config.yaml` changes rebuild it.
 - The project's `Containerfile` (from `<project>/.devisolator/`)
-  is merged with the host user block and every enabled addon template
-  (see [Project configuration](#project-configuration)) and built from
-  the build context (the directory containing the `.devisolator`
-  directory).
-- The base image given in the `Containerfile` is pulled fresh, the
-  build is tagged `dev-isolator:<slug_of_the_project_path>--<tag>` and
-  intermediate containers are removed afterwards.
+  must be based on that base image and is built from the build
+  context (the directory containing the `.devisolator` directory).
+  The build always ends with `USER <you>` and
+  `WORKDIR /workspace`.
 - If a previous image carried the same tag but the build produced a
   different image id, the superseded image is removed so no dangling
   image is left behind.
+
+Building aborts with an error when the `Containerfile` does not use a
+dev-isolator base image, or when the referenced base image is not
+bundled with dev-isolator (see
+[Base images](#base-images)).
 
 Options:
 
@@ -190,6 +209,11 @@ container name prefix (`dev-isolator-<slug>--<tag>` for `clean`,
 `dev-isolator-<slug>` for `clean --local`, or `dev-isolator-` for
 `clean --all`). With `--verbose` the removed containers and images
 are printed.
+
+Base images (`dev-isolator-<name>:<tag>`, e.g.
+`dev-isolator-ubuntu:24.04`) are never removed by `clean`; they are
+shared by all projects (see
+[Base image cleanup](#base-image-cleanup)).
 
 Options:
 
@@ -299,7 +323,7 @@ of the project at once.
 ```
 my-project/
 └── .devisolator/
-    ├── Containerfile            # default base image (e.g. ubuntu:24.04)
+    ├── Containerfile            # based on a dev-isolator base image
     ├── config.yaml              # default addons and settings
     └── gpu/
         ├── Containerfile        # e.g. a CUDA-enabled base image
@@ -364,18 +388,15 @@ Configuration resolution rules:
   `host:container[:mode]` specs.
 - Addon templates are collected first from the directory bundled with
   dev-isolator, then from `.devisolator/` (sorted by file name);
-  duplicates are removed.
-- When the image is built, a host user block is appended: a user with
-  the same UID, GID and username as the invoking host user is created
-  (removing any pre-existing user/group occupying those properties)
-  and made the image's default user. 
-  with `WORKDIR /workspace`.
-
-#### Tested Base Images 
-
-Since `dev-isolator` has to integrate with the container, only `apt` and `dnf`
-based Linux distributions like Ubuntu, Debian, Fedora, AlmaLinux, or RockyLinux 
-are supported in the container. 
+  duplicates are removed. They are rendered into the base image's
+  Containerfile (see [Base images](#base-images)), not into the
+  project one.
+- The host user block is likewise appended to the base image's
+  Containerfile: a user with the same UID, GID and username as the
+  invoking host user is created (removing any pre-existing user/group
+  occupying those properties) and made the image's default user. The
+  project image build appends only the trailing workdir switch, i.e.
+  `USER <you>` and `WORKDIR /workspace`, to your `Containerfile`.
 
 #### Addon configuration (`config.<addon>.yaml`)
 
@@ -409,13 +430,101 @@ volumes:
   Messages about skipped entries are only shown at the highest
   verbosity (`-vvv`).
 
+### Base images
+
+This section explains the base image level, on which every project
+image is built; the project level is described in
+[Project configuration](#project-configuration).
+
+#### A project `Containerfile` must be based on a dev-isolator base image
+
+The single `FROM` instruction of a project's `Containerfile` must
+reference a dev-isolator base image, i.e. an image named
+`localhost/dev-isolator-...` or `dev-isolator-...`:
+
+```dockerfile
+FROM localhost/dev-isolator-ubuntu:26.04
+```
+
+The short form `FROM dev-isolator-ubuntu:26.04` is accepted as well
+(`localhost/` is how podman names locally built images). A
+`Containerfile` based on an unprepared image such as
+`FROM ubuntu:26.04` makes every dev-isolator command abort with:
+
+```
+RuntimeError: The setup in .../.devisolator/Containerfile does not use
+a dev-isolator image as base.
+```
+
+#### Where a base image comes from
+
+Base images are built from the Containerfiles bundled with
+dev-isolator (`data/base/Containerfile.<name>`, for example
+`Containerfile.ubuntu-26.04`). Each file's first comment block names
+the distribution it is derived from:
+
+```dockerfile
+# DI_BASE = ubuntu:26.04
+FROM ubuntu:26.04
+RUN apt-get update && apt install -y cmake build-essential
+```
+
+A base image built from such a file is tagged
+`dev-isolator-<name>:<tag>`, where the name and tag are the parts of
+the `DI_BASE` value around its `:` — so the file above produces
+`dev-isolator-ubuntu:26.04` (shown as
+`localhost/dev-isolator-ubuntu:26.04` in the local podman image store).
+Project `Containerfile`s reference exactly these tags.
+
+The bundled base images only use `apt` or `dnf` based distributions
+(Ubuntu, Debian, Fedora, AlmaLinux, RockyLinux, …). This matters: a
+base image carries the host user block, which requires `useradd` and
+`getent` to exist (see
+[Project configuration](#project-configuration)). Currently, Ubuntu
+22.04, 24.04 and 26.04 base images ship with dev-isolator; a
+`Containerfile` referencing any other image aborts with a
+`FileNotFoundError` ("Could not find the base image for ...").
+
+#### What goes into the base image, what goes into the project image
+
+The base image keeps everything *shared* by all projects (and tag
+variants) of a machine:
+
+- the base setup of the bundled base Containerfile,
+- the host user block: your host UID, GID and username are set up
+  (removing any pre-existing user/group occupying those properties),
+- the enabled addons rendered into container instructions
+  (`addon.<name>.jinja2` files; see
+  [Project configuration](#project-configuration) for how the addons
+  are enabled).
+
+Your project contributes its own steps in the project-level build: the
+contents of the project `Containerfile` (system packages etc.) plus
+the trailing workdir switch, `USER <you>` and `WORKDIR /workspace`.
+
+Because addons and the host user block are baked into the base image,
+changing `config.yaml` (or your addons) triggers a rebuild of the base
+image on the next run; the project `Containerfile` does not need the
+host user steps anymore.
+
+#### Base image cleanup
+
+`clean --all` only removes images whose repository is exactly
+`dev-isolator` (the project images) — see [clean](#clean). The base
+images are named `dev-isolator-<name>:<tag>` and are deliberately not
+removed by `clean`: being shared by all projects, they stay
+installed until you remove them manually with
+`podman rmi dev-isolator-ubuntu:26.04`.
+
 ### Bundled default configuration
 
 When no `.devisolator` directory is found, dev-isolator uses its
 bundled defaults:
 
-- Base image: `FROM ubuntu:26.04`, installing `cmake` and
-  `build-essential`.
+- Base image: the bundled `ubuntu` base image (`FROM ubuntu:26.04`,
+  installing `cmake` and `build-essential`), built as
+  `dev-isolator-ubuntu:26.04` together with the host user block and
+  the enabled addons (see [Base images](#base-images)).
 - Addons `opencode` and `claude`, which install the respective AI
   coding tool into the image and put it on the `PATH`.
 
@@ -425,15 +534,16 @@ bundled defaults:
 cd /home/user/projects/my-project
 mkdir -p .devisolator
 cat > .devisolator/Containerfile <<'EOF'
-FROM ubuntu:24.04
+FROM localhost/dev-isolator-ubuntu:24.04
 RUN apt-get update && apt-get install --yes build-essential python3-pip python3-venv
 EOF
 echo "addons: [opencode]" > .devisolator/config.yaml
 
-dev-isolator build          # build dev-isolator:home-user-projects-my-project--default
+dev-isolator build          # builds the shared base image (once), then
+                            # dev-isolator:home-user-projects-my-project--default
 dev-isolator                # open a bash inside the container
 dev-isolator run make test  # or run a single command
-dev-isolator clean          # remove the image again
+dev-isolator clean          # remove the image again (the base image stays)
 ```
 
 ## Examples: a `.devisolator` folder
@@ -445,7 +555,7 @@ in the root of your project:
 ```
 my-project/
 ├── .devisolator/
-│   ├── Containerfile        # base image + system packages
+│   ├── Containerfile        # based on a dev-isolator base image + system packages
 │   ├── config.yaml          # which addons to enable + container settings
 │   ├── addon.python.jinja2  # (optional) extra image steps for an addon
 │   └── config.python.yaml   # (optional) runtime settings for that addon
@@ -454,15 +564,15 @@ my-project/
 
 ### `Containerfile`
 
-The base image and any system-level setup. The base image must be
-`apt`- or `dnf`-based (see
-[Tested Base Images](#tested-base-images)), because dev-isolator
-appends a block that creates a user with your host UID/GID (so
-`useradd` and `getent` must exist). The build
+Your project's system-level setup. Its single `FROM` instruction must
+be based on a dev-isolator base image (see
+[Base images](#base-images)) — for example, the bundled `ubuntu` base
+image. The base image is where the host user with your UID/GID comes
+from (so `useradd` and `getent` must exist there); the project build
 always ends with `USER <you>` and `WORKDIR /workspace`.
 
 ```dockerfile
-FROM ubuntu:24.04
+FROM localhost/dev-isolator-ubuntu:24.04
 RUN apt-get update && apt-get install --yes \
         build-essential python3 python3-pip python3-venv
 ```
@@ -498,8 +608,9 @@ volumes:
 ### `addon.<name>.jinja2`
 
 A jinja2 template with additional Containerfile instructions for the
-addon `<name>`. It is rendered and appended to the `Containerfile` at
-build time. These variables are available:
+addon `<name>`. It is rendered and appended to the *base image's*
+Containerfile at base image build time (see
+[Base images](#base-images)). These variables are available:
 
 - `uid`, `gid` — your host UID and GID
 - `username` — a user name usable for those ids
@@ -544,14 +655,20 @@ host path, container path and optional mode) is expanded as follows:
 
 ### What gets built
 
-For the folder above, dev-isolator merges — in order — your
-`Containerfile`, the automatically appended host-user block, and the
-enabled addon templates (`addon.python.jinja2`, then the bundled
-`addon.opencode.jinja2`), and finishes with `USER <you>` and
-`WORKDIR /workspace`. Building in `my-project/` produces the image
-`dev-isolator:my-project--default`; running `dev-isolator` then mounts
-`my-project/` at `/workspace` inside a container running as your own
-UID/GID, so files you create stay owned by you.
+For the folder above, dev-isolator builds two images:
+
+1. the shared base image `dev-isolator-ubuntu:24.04` — the bundled
+   base Containerfile, followed by the host-user block (`USER <you>`)
+   and the enabled addon templates (`addon.python.jinja2`, then the
+   bundled `addon.opencode.jinja2`), built once and reused;
+2. the project image `dev-isolator:<slug_of_my-project>--default`
+   (for the path above `dev-isolator:home-user-projects-my-project--default`)
+   — your `Containerfile` followed by
+   `USER <you>` and `WORKDIR /workspace`.
+
+Running `dev-isolator` then mounts `my-project/` at `/workspace`
+inside a container running as your own UID/GID, so files you create
+stay owned by you.
 
 ## Contributing
 

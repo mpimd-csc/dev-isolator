@@ -1,4 +1,22 @@
-"""Manage container definitions (build/create) for dev-isolator.
+"""Build the dev-isolator base image (BaseImage).
+
+Before a project's image can be built, its base image must exist: a
+base image is built from one of the Containerfiles bundled with
+dev-isolator (``data/base/Containerfile.<name>``, identified by the
+``DI_BASE`` comment in its first comment block). The resulting image is
+tagged ``dev-isolator-<name>:<tag>``, e.g.
+``dev-isolator-ubuntu:26.04``.
+
+The used Containerfile of a base image merges three sources: the base
+Containerfile itself, the addons enabled in the active ``config.yaml``
+(each ``addon.<name>.jinja2`` file rendered as a jinja2 template with
+the host context, see :class:`AddonsConfiguration`) and the host user
+block (a user with the invoking host user's UID, GID and username,
+template ``add_user.containerfile.jinja2``).
+
+Project image builds (see
+:class:`dev_isolator.container_file.ContainerFile`) then base their
+``FROM`` instruction on this base image.
 
 Copyright (C) 2026 Martin Köhler
 
@@ -79,9 +97,40 @@ def _add_user_template() -> jinja2.Template:
 
 
 class BaseImage:
+    """Build the base image a project image is based upon.
+
+    A base image is built from one of the Containerfiles bundled with
+    dev-isolator (``data/base/Containerfile.<name>``), with the addons
+    enabled in the active ``config.yaml`` and the host user appended
+    (see :meth:`merged_container_file_content`). The resulting image
+    is tagged ``dev-isolator-<name>:<tag>``.
+
+    :attr base_image: Name (without registry prefix and tag) of the
+        selected base Containerfile, e.g. ``ubuntu``.
+    :attr tag: The tag of the selected base Containerfile, e.g.
+        ``26.04``.
+    :attr name: Like ``base_image``; the part of the selected base
+        image before its ``:`` separator.
+    :attr base_images: Mapping from the ``DI_BASE`` value of every
+        bundled base Containerfile to its path, e.g.
+        ``ubuntu:26.04`` to ``data/base/Containerfile.ubuntu-26.04``.
+    """
+
     def __init__(self, context_dir, config_file,
                  addon_search_path):
+        """Set up the base image for a build context.
 
+        :param context_dir: Path to the project's build context
+            directory; the temporary merged base Containerfile is
+            written here during the build.
+        :param config_file: Path to the project's ``config.yaml``,
+            determining the enabled addons. May be ``None``, in which
+            case (as with a missing file) every ``addon.*`` file is
+            used.
+        :param addon_search_path: List of directories searched for
+            ``addon.*`` files that are appended to the base image's
+            Containerfile.
+        """
         self.context_dir = Path(context_dir)
         self.config_file = Path(config_file) if config_file else None
         self.addons_search_path = addon_search_path
@@ -120,6 +169,19 @@ class BaseImage:
         return value
 
     def write_container_file(self):
+        """Write the used Containerfile for the base image build.
+
+        The used Containerfile is the merged content of the selected
+        base Containerfile (see :meth:`merged_container_file_content`).
+        At ``Verbosity.TRACE`` the content is printed to stdout.
+
+        The file is created inside ``self.context_dir`` and fsynced,
+        so its content reaches disk before podman reads the file
+        during the build.
+
+        :returns: The tuple ``(fd, temp_container_file)`` of the
+            open file descriptor of the written file and its path.
+        """
         container_file = self.base_images.get(self.base_image, None)
         base_content = container_file.read_text(encoding="utf-8")
 
@@ -146,17 +208,33 @@ class BaseImage:
     def build(self, image):
         """Build a base image.
 
-        ``name`` identifies the base Containerfile, i.e. the suffix
-        after ``Containerfile.`` (e.g. ``ubuntu-24.04``). The resulting
-        image is tagged ``dev-isolator-<name>:<tag>``, where the tag is
-        taken from the name (``ubuntu-24.04`` -> ``24.04``); a name
-        without a dash is used as the tag itself.
+        ``image`` identifies the base image the project's Containerfile
+        is based on, for example
+        ``localhost/dev-isolator-ubuntu:26.04`` (as written in a
+        project Containerfile) or plain ``ubuntu:26.04``. An optional
+        ``localhost/dev-isolator-`` or ``dev-isolator-`` prefix is
+        stripped, and the remainder must match the ``DI_BASE`` value of
+        one of the bundled base Containerfiles (see
+        :meth:`_parse_di_base` and :attr:`base_images`).
 
-        :returns: the built image.
-        :raises FileNotFoundError: if no Containerfile exists for
-            ``name``.
-        :raises RuntimeError: if the tag cannot be derived or the
-            podman build fails.
+        The resulting image is tagged
+        ``dev-isolator-<name>:<tag>``, where ``name`` and ``tag`` are
+        the parts of the identified base image around its ``:``
+        separator (``ubuntu:26.04`` -> ``dev-isolator-ubuntu:26.04``).
+
+        The built Containerfile is the merged base Containerfile with
+        the enabled addons and the host user appended (see
+        :meth:`merged_container_file_content`). It requires a
+        Debian-style base image (``useradd`` and ``getent`` must
+        exist).
+
+        :param image: The base image to build the project image from,
+            e.g. ``localhost/dev-isolator-ubuntu:26.04``.
+        :returns: The built image.
+        :raises FileNotFoundError: if no bundled base Containerfile
+            matches ``image``.
+        :raises RuntimeError: if the tag cannot be derived from
+            ``image`` or the podman build fails.
         """
         for prefix in ("localhost/dev-isolator-", "dev-isolator-"):
             if image.startswith(prefix):
@@ -224,32 +302,41 @@ class BaseImage:
     def add_user_content(self) -> str:
         """Return the Containerfile instructions adding the host user.
 
-        Renders the ``templates/host_user.containerfile.jinja2``
+        Renders the ``templates/add_user.containerfile.jinja2``
         template shipped with dev-isolator (see :const:`TEMPLATES_DIR`)
-        with the host context (see :meth:`render_template`), as do the
+        with the host context (see :func:`render_template`), as do the
         ``addon.*`` files in :meth:`merged_container_file_content`.
 
         The template removes any pre-existing user/group occupying
         those properties from the image and then creates a user whose
         UID, GID and username match those of the invoking host user,
         making it the image's default user.
+
+        It requires a Debian-style base image (``useradd`` and
+        ``getent`` must exist).
         """
         return render_template(_add_user_template())
 
     def merged_container_file_content(self, base_content) -> str:
-        """Return the used Containerfile with all addons appended.
+        """Return the base image's used Containerfile content.
 
-        Starts with the content of ``self.container_file`` and appends
-        every addon file from :meth:`AddonsConfiguration.addon_files`
-        rendered as a jinja2 template (see
-        :meth:`host_user_containerfile_content` for the template
+        Starts with the content of the base ``Containerfile``
+        ``base_content`` and appends the host user block (same UID,
+        GID and username as the invoking user, see :meth:`add_user_content`),
+        followed by every addon file from
+        :meth:`AddonsConfiguration.addon_files` rendered as a jinja2
+        template (see :func:`render_template` for the template
         variables), separated by a comment naming the addon file.
 
-        Afterwards a host user (same UID, GID and username as the
-        invoking user, see :meth:`host_username`) is created and made
-        the image's default user, so shells and exec sessions run as
-        that user. It requires a Debian-style base image (``useradd``
-        and ``getent`` must exist).
+        The host user makes shells and exec sessions run as that
+        user; addons that need to install packages switch to root and
+        must re-assert the host user again themselves.
+
+        :param base_content: The content of the base Containerfile to
+            append the host user and the addons to.
+        :returns: The merged Containerfile content.
+        :raises RuntimeError: if an addon config file is invalid (via
+            :meth:`AddonsConfiguration.addon_files`).
         """
         text = str(base_content)
         text += "\n\n" + self.add_user_content()
