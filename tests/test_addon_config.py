@@ -25,8 +25,12 @@ def definition(tmp_path: Path, monkeypatch) -> ContainerDefintion:
         "FROM localhost/dev-isolator-ubuntu:26.04\n")
     (config_dir / "addon.mine").write_text("RUN echo custom\n")
     (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
-    # The base image build is not part of these tests.
-    monkeypatch.setattr(BaseImage, "build", lambda self, image: None)
+    # The base image build is not part of these tests; it is stubbed
+    # out to return the (image, image_tag, content_hash) tuple the real
+    # build produces, of which only the image tag is used (as the base
+    # image name in the project Containerfile).
+    monkeypatch.setattr(
+        BaseImage, "build", lambda self, image: (None, image, None))
     return ContainerDefintion(tmp_path, container_file,
                               config_dir / "config.yaml", [config_dir])
 
@@ -419,7 +423,11 @@ class TestRunContainerSettings:
     def creation_stub(self, tmp_path: Path, monkeypatch):
         """Stub out the base image and image build steps, so only the
         container creation is exercised."""
-        monkeypatch.setattr(BaseImage, "build", lambda self, image: None)
+        # The base image build is stubbed out; it returns the tuple
+        # (image, image_tag, content_hash), of which only the image tag is
+        # used (as the base image name in the project Containerfile).
+        monkeypatch.setattr(
+            BaseImage, "build", lambda self, image: (None, image, None))
         monkeypatch.setattr(
             ContainerDefintion, "build_container",
             lambda self, nocache=False: None)

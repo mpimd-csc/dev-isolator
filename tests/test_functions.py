@@ -13,7 +13,8 @@ import podman.errors
 import pytest
 import dev_isolator.container_manager as container_manager
 from dev_isolator.base_image import BaseImage, host_username
-from dev_isolator.constants import BUNDLE_DIR, CONTAINER_NAME_SUFFIX_LENGTH
+from dev_isolator.constants import (
+    BUNDLE_DIR, ADDON_DIR, CONTAINER_NAME_SUFFIX_LENGTH)
 from dev_isolator.container_manager import ContainerDefintion
 from dev_isolator.main import DEFAULT_SHELL, create_parser, parse_args
 from dev_isolator.utils import Verbosity
@@ -30,7 +31,7 @@ class TestMergedContainerfile:
         """Addon.* files enabled in the bundled addons.yaml are
         appended to the base image's Containerfile."""
         base = BaseImage(tmp_path, BUNDLED_DIR / "config.yaml",
-                         [BUNDLED_DIR])
+                         [ADDON_DIR])
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
         assert merged.startswith("FROM ubuntu:26.04\n")
@@ -156,7 +157,7 @@ class TestMergedContainerfile:
         bundled = Path(container_manager.__file__).resolve().parent \
             / BUNDLE_DIR
 
-        base = BaseImage(bundled, bundled / "config.yaml", [bundled])
+        base = BaseImage(bundled, bundled / "config.yaml", [ADDON_DIR])
         addons = base.addons.addon_files()
 
         assert len(addons) == len({a for a in addons})
@@ -268,8 +269,12 @@ class TestBuildTraceOutput:
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text(
             "addons:\n  - mine\n")
-        # The base image build is not part of these tests.
-        monkeypatch.setattr(BaseImage, "build", lambda self, image: None)
+        # The base image build is not part of these tests; it is stubbed
+        # out to return the (image, image_tag, content_hash) tuple the
+        # real build produces, of which only the image tag is used (as
+        # the base image name in the project Containerfile).
+        monkeypatch.setattr(
+            BaseImage, "build", lambda self, image: (None, image, None))
         return ContainerDefintion(tmp_path, container_file,
                                   config_dir / "config.yaml",
                                   [config_dir])
@@ -407,7 +412,9 @@ class TestBaseImageBuild:
 
         base.build("ubuntu:26.04")
 
-        assert images.built["tag"] == "dev-isolator-ubuntu:26.04"
+        # The tag carries a content hash of the merged Containerfile
+        # (dev-isolator-<name>:<tag>-<hash>).
+        assert images.built["tag"].startswith("dev-isolator-ubuntu:26.04-")
         content = images.dockerfile_content
         # The base Containerfile (including its DI_BASE comment)
         # comes first.
@@ -685,8 +692,12 @@ class TestRunContainerCommand:
         container_file = config_dir / "Containerfile"
         container_file.write_text(
             "FROM localhost/dev-isolator-ubuntu:26.04\n")
-        # The base image build is not part of these tests.
-        monkeypatch.setattr(BaseImage, "build", lambda self, image: None)
+        # The base image build is not part of these tests; it is stubbed
+        # out to return the (image, image_tag, content_hash) tuple the
+        # real build produces, of which only the image tag is used (as
+        # the base image name in the project Containerfile).
+        monkeypatch.setattr(
+            BaseImage, "build", lambda self, image: (None, image, None))
         return ContainerDefintion(tmp_path, container_file, None,
                                   [config_dir])
 
@@ -810,8 +821,12 @@ class TestContainerName:
         container_file = config_dir / "Containerfile"
         container_file.write_text(
             "FROM localhost/dev-isolator-ubuntu:26.04\n")
-        # The base image build is not part of these tests.
-        monkeypatch.setattr(BaseImage, "build", lambda self, image: None)
+        # The base image build is not part of these tests; it is stubbed
+        # out to return the (image, image_tag, content_hash) tuple the
+        # real build produces, of which only the image tag is used (as
+        # the base image name in the project Containerfile).
+        monkeypatch.setattr(
+            BaseImage, "build", lambda self, image: (None, image, None))
         return ContainerDefintion(tmp_path, container_file, None,
                                   [config_dir])
 
@@ -927,8 +942,12 @@ class TestCleanRemovesMatchingContainers:
         container_file = config_dir / "Containerfile"
         container_file.write_text(
             "FROM localhost/dev-isolator-ubuntu:26.04\n")
-        # The base image build is not part of these tests.
-        monkeypatch.setattr(BaseImage, "build", lambda self, image: None)
+        # The base image build is not part of these tests; it is stubbed
+        # out to return the (image, image_tag, content_hash) tuple the
+        # real build produces, of which only the image tag is used (as
+        # the base image name in the project Containerfile).
+        monkeypatch.setattr(
+            BaseImage, "build", lambda self, image: (None, image, None))
         return ContainerDefintion(tmp_path, container_file, None,
                                   [config_dir])
 
