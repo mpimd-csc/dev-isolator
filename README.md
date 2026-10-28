@@ -5,9 +5,8 @@
 
 **Requirements:**
 
-- Linux with a working podman installation (the podman socket/service
-  must be reachable through the `podman` Python bindings).
-- Python 3.10 or later.
+- Linux with a working podman installation.
+- Python 3.11 or later.
 - Python dependecies:
   - [`podman`](https://podman-py.readthedocs.io/en/latest/)
   - [`pyyaml`](https://pypi.org/project/PyYAML/)
@@ -49,7 +48,7 @@ pytest
 dev-isolator [--verbose/-v]... [--shell/-s <shell>] [--config/-c <name>] <subcommand> [arguments]
 ```
 
-Global options:
+**Global options:**
 
 | Option | Description |
 |---|---|
@@ -57,7 +56,7 @@ Global options:
 | `--shell`, `-s` | Shell to start inside the container. Default: `bash`. Applies to `shell` and to an interactive session started by `run` when no command is given. |
 | `--config`, `-c` | Name of a sub-configuration: a subdirectory of `.devisolator/` holding its own `Containerfile` and `config.yaml` (see [Sub-configurations (`--config`)](#sub-configurations---config)). An explicit `--config` takes precedence over the `DEVISOLATOR_CONFIG` environment variable. |
 
-Subcommands:
+**Subcommands:**
 
 | Subcommand | Description |
 |---|---|
@@ -106,7 +105,7 @@ dev-isolator base image, or when the referenced base image is not
 bundled with dev-isolator (see
 [Base images](#base-images)).
 
-Options:
+**Options:**
 
 | Option | Description |
 |---|---|
