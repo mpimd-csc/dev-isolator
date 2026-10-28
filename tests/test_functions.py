@@ -769,6 +769,8 @@ class TestMainRunDispatch:
             return 0
 
         monkeypatch.setattr(di_main, "shell", fake_shell)
+        monkeypatch.setattr(di_main, "ContainerDefintion",
+                            lambda *args, **kwargs: object())
         monkeypatch.setattr(sys, "argv", ["di", "run"])
 
         assert di_main.main() == 0
@@ -789,6 +791,8 @@ class TestMainRunDispatch:
 
         monkeypatch.setattr(di_main, "in_container_command",
                             fake_in_container)
+        monkeypatch.setattr(di_main, "ContainerDefintion",
+                            lambda *args, **kwargs: object())
         monkeypatch.setattr(sys, "argv", ["di", "run", "make", "test"])
 
         assert di_main.main() == 0
