@@ -1,0 +1,9 @@
+environment:
+  - OPENCODE_CONFIG
+  - OPENCODE_CONFIG_DIR
+volumes:
+  - ${HOME}/.config/opencode:${HOME}/.config/opencode:rw
+  - ${HOME}/.local/share/opencode:${HOME}/.local/share/opencode:rw
+  - ${HOME}/.local/state/opencode:${HOME}/.local/state/opencode:rw
+  - ENV[OPENCODE_CONFIG]:ENV[OPENCODE_CONFIG]
+  - ENV[OPENCODE_CONFIG_DIR]:ENV[OPENCODE_CONFIG_DIR]

@@ -44,7 +44,7 @@ import os
 from textwrap import dedent
 from .container_manager import ContainerDefintion
 from .utils import set_verbosity, search_path, Verbosity, dprint
-from .constants import BUNDLE_DIR, CONFIG_FILE_NAME
+from .constants import BUNDLE_DIR, CONFIG_FILE_NAME, ADDON_DIR
 from pathlib import Path
 
 DEFAULT_SHELL = "bash"
@@ -378,7 +378,7 @@ def get_path(config):
         candidates_addon.append(di_path)
     candidates_container_file.append(bundle_path / "Containerfile")
     candidates_config_file.append(bundle_path / CONFIG_FILE_NAME)
-    candidates_addon.append(bundle_path)
+    candidates_addon.append(ADDON_DIR)
 
     config_file = [x.resolve() for x in candidates_config_file
                    if x.resolve().is_file()]

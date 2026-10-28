@@ -20,7 +20,12 @@ CONTAINER_NAME_SUFFIX_LENGTH = 8
 
 #: Directory holding the templates shipped with dev-isolator (the
 #: jinja2 Containerfile templates).
-TEMPLATES_DIR = Path(__file__).parent / "templates"
+TEMPLATES_DIR = Path(__file__).parent / "data" / "setup"
+
+#: Directory holding the addons shipped with dev-isolator (the
+#: jinja2 Containerfile templates).
+ADDON_DIR = Path(__file__).parent / "data" / "addons"
+
 
 #: Directory bundled with dev-isolator holding the default
 #: ``Containerfile``, the addon templates and the addon configs.

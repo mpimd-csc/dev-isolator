@@ -94,14 +94,15 @@ class ContainerFile:
         base_image = result.get("image", "xxx")
         base_image_tag = result.get("tag", None)
         if not (base_image.startswith("localhost/dev-isolator-") or
-                base_image.startswith("dev-isolatpr-")):
+                base_image.startswith("dev-isolator-")):
             raise RuntimeError(f"The setup in {self.container_file} does not "
-                               "use a dev-isolator image as base. ")
+                               "use a dev-isolator image as base. Got "
+                               f"{base_image}")
         base_image = f"{base_image}{base_image_tag}"
 
         self.base_image = BaseImage(self.context_dir, self.config_file,
                                     self.addons_search_path)
-        self.base_image.build(base_image)
+        _, self.base_image_name, _ = self.base_image.build(base_image)
 
     def _write_container_file(self):
         """Write the used Containerfile for the image build.
@@ -125,6 +126,8 @@ class ContainerFile:
         """
         # Setup final Containerfile
         file_content = self.container_file.read_text(encoding="utf-8")
+        file_content = self.replace_from_images(file_content,
+                                                self.base_image_name)
         file_content = str(file_content)
         file_content += "\n\n# --- workdir ---\n"
         file_content += f"USER {host_username()}\n"
@@ -290,3 +293,36 @@ class ContainerFile:
 
         visit(tree.root_node)
         return results
+
+    def replace_from_images(self, content: str, new_image: str) -> str:
+        parser = Parser(
+            Language(tree_sitter_containerfile.language())
+        )
+
+        source = content.encode("utf-8")
+        tree = parser.parse(source)
+
+        replacements = []
+
+        def visit(node):
+            if node.type == "from_instruction":
+                for child in node.named_children:
+                    if child.type == "image_spec":
+                        replacements.append(
+                            (child.start_byte, child.end_byte)
+                        )
+                        break
+
+            for child in node.named_children:
+                visit(child)
+
+        visit(tree.root_node)
+
+        for start, end in reversed(replacements):
+            source = (
+                source[:start]
+                + new_image.encode("utf-8")
+                + source[end:]
+            )
+
+        return source.decode("utf-8")

@@ -1,0 +1,5 @@
+# DI_BASE = fedora:rawide
+FROM fedora:rawhide
+
+RUN dnf install -y cmake gcc curl wget git
+

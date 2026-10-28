@@ -1,0 +1,5 @@
+# DI_BASE = fedora:45
+FROM fedora:45
+
+RUN dnf install -y cmake gcc curl wget git
+

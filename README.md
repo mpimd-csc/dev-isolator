@@ -31,6 +31,7 @@ Requirements:
   - [`podman`](https://podman-py.readthedocs.io/en/latest/)
   - [`pyyaml`](https://pypi.org/project/PyYAML/)
   - [`jinja2`](https://jinja.palletsprojects.com/en/stable/)
+  - [`tree-sitter-containerfile`](https://github.com/wharflab/tree-sitter-containerfile/)
   - [`pytest`](https://docs.pytest.org/en/stable/), only used by the test-suite (but currently installed with dev-isolator as a regular dependency)
 
 Both commands `dev-isolator` and `di` (a short alias) start the tool.
@@ -516,17 +517,16 @@ removed by `clean`: being shared by all projects, they stay
 installed until you remove them manually with
 `podman rmi dev-isolator-ubuntu:26.04`.
 
-### Bundled default configuration
+#### Bundle Base Images and Addons
 
-When no `.devisolator` directory is found, dev-isolator uses its
-bundled defaults:
-
-- Base image: the bundled `ubuntu` base image (`FROM ubuntu:26.04`,
-  installing `cmake` and `build-essential`), built as
-  `dev-isolator-ubuntu:26.04` together with the host user block and
-  the enabled addons (see [Base images](#base-images)).
-- Addons `opencode` and `claude`, which install the respective AI
-  coding tool into the image and put it on the `PATH`.
+- Base images:
+  - `ubuntu:22.04`, `ubuntu:24.04`, `ubuntu:26.04` using Ubuntu as base 
+  - `fedora:43 `, `fedora:44`, `fedora:45`, and `fedora:rawhide` using Fedora 
+     as base. 
+  - `almalinux:9` and `almalinux:10` using AlmaLinux (RHEL) as base. 
+- Addons:
+  - `opencode`, installs the `opencode` cli tool 
+  - `claude`, installs the `claude` cli tool 
 
 ### Typical workflow
 

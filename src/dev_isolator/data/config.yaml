@@ -1,3 +1,6 @@
+# This is the default config for dev-isolator
+# Users can overwrite it in each project.
+#
 addons:
   - opencode
   - claude

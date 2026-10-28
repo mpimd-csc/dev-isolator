@@ -39,6 +39,7 @@ import re
 import podman
 import json
 import jinja2
+import hashlib
 from functools import lru_cache
 from tempfile import mkstemp
 
@@ -186,6 +187,10 @@ class BaseImage:
         base_content = container_file.read_text(encoding="utf-8")
 
         file_content = self.merged_container_file_content(base_content)
+        m = hashlib.sha256()
+        m.update(file_content.encode("utf-8"))
+        content_hash = m.hexdigest()
+
         if get_verbosity() >= Verbosity.TRACE:
             for line in file_content.splitlines():
                 print(f"[Containerfile] {line}")
@@ -203,7 +208,7 @@ class BaseImage:
         except BaseException:
             temp_container_file.unlink(missing_ok=True)
             raise
-        return fd, temp_container_file
+        return fd, temp_container_file, content_hash
 
     def build(self, image):
         """Build a base image.
@@ -253,13 +258,12 @@ class BaseImage:
                                "tag") from e
         self.name = image.split(":")[0]
 
-        image_tag = f"dev-isolator-{self.name}:{self.tag}"
+        fd, temp_container_file, content_hash = self.write_container_file()
+        image_tag = f"dev-isolator-{self.name}:{self.tag}-{content_hash}"
+        dprint(Verbosity.INFO, "Created temporary Containerfile "
+                               f"{temp_container_file}")
 
         try:
-            fd, temp_container_file = self.write_container_file()
-            dprint(Verbosity.INFO, "Created temporary Containerfile "
-                                   f"{temp_container_file}")
-
             with podman.PodmanClient() as client:
                 previous_id = get_image_id(client, image_tag)
                 dprint(Verbosity.INFO, f"Building base image "
@@ -296,8 +300,8 @@ class BaseImage:
                     dprint(Verbosity.TRACE, f"[build] {stream}")
 
         dprint(Verbosity.INFO, f"Built base image {image.id} "
-               f"tagged {image_tag}")
-        return image
+               f"tagged {image_tag} with hash {content_hash}")
+        return image, image_tag, content_hash
 
     def add_user_content(self) -> str:
         """Return the Containerfile instructions adding the host user.

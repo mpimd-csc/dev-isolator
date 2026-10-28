@@ -1,7 +1,0 @@
-environment:
-  - OPENCODE_CONFIG
-  - OPENCODE_CONFIG_DIR
-volumes:
-  - ${HOME}/.config/opencode:${HOME}/.config/opencode:ro
-  - ENV[OPENCODE_CONFIG]:ENV[OPENCODE_CONFIG]
-  - ENV[OPENCODE_CONFIG_DIR]:ENV[OPENCODE_CONFIG_DIR]

@@ -30,5 +30,5 @@ Issues = "https://gitlab.mpi-magdeburg.mpg.de/software/dev-isolator/-/work_items
 where = ["src"]
 
 [tool.setuptools.package-data]
-dev_isolator = ["data/*", "templates/*"]
+dev_isolator = ["data/*"]
 

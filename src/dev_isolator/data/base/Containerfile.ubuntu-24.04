@@ -1,8 +1,5 @@
 # DI_BASE = ubuntu:24.04
 FROM ubuntu:24.04
 
-# Install baseline apt packages and Node.js 20 LTS via NodeSource.
-# apt cache is intentionally left available so AI tools can install
-# additional packages at runtime without re-running apt-get update.
-RUN apt-get update && apt install -y cmake build-essential
+RUN apt-get update && apt install -y cmake build-essential git curl wget
 
