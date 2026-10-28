@@ -6,4 +6,5 @@ dist
 AGENTS.md
 .containerfile*
 *.swp
+.devisolator
 
