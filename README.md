@@ -3,26 +3,7 @@
 `dev-isolator` is a command line tool that manages a per-project,
 [podman](https://podman.io/) based development environment.
 
-For every project containing a `.devisolator` directory (holding a
-`Containerfile` and optional addon configuration) it builds a container
-image named `dev-isolator:<slug_of_the_project_path>--<tag>` (the
-default tag is `default`) and runs commands inside a container named
-`dev-isolator-<slug_of_the_project_path>--<tag>-<8 random characters>`,
-created from that image. The random suffix lets several containers
-of the same project run in parallel. The current working
-directory is mounted into the container at `/workspace`. This keeps
-build tools, caches and dependencies isolated from the host, while the
-sources stay in place.
-
-Images are built in two stages (see
-[Base images](#base-images)): first, a *base image* carrying your host
-user and the enabled addons is built from a Containerfile bundled with
-dev-isolator (whenever a dev-isolator command runs; the build cache
-keeps this cheap); the project's `Containerfile` must then be
-based on this base image (`FROM localhost/dev-isolator-ubuntu:26.04`,
-for example). The project image is built on top of it.
-
-Requirements:
+**Requirements:**
 
 - Linux with a working podman installation (the podman socket/service
   must be reachable through the `podman` Python bindings).
