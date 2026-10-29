@@ -130,7 +130,8 @@ class BaseImage:
             used.
         :param addon_search_path: List of directories searched for
             ``addon.*`` files that are appended to the base image's
-            Containerfile.
+            Containerfile. May be ``None`` or empty, in which case
+            (as with a missing ``config_file``) no addons are found.
         """
         self.config_file = Path(config_file) if config_file else None
         self.addons_search_path = (addon_search_path if addon_search_path
@@ -147,13 +148,11 @@ class BaseImage:
                 dprint(Verbosity.DEBUG, f"Found base image {value} in {path}")
                 self.base_images[value] = path
 
-        if context_dir and self.config_file and self.addons_search_path:
-            self.addons = AddonsConfiguration(context_dir,
-                                              self.bundled_dir,
-                                              self.config_file,
-                                              self.addons_search_path)
-        else:
-            self.addons = None
+        self.addons = AddonsConfiguration(
+            context_dir,
+            self.bundled_dir,
+            self.config_file,
+            addon_search_path if addon_search_path else [])
 
     def list_base_images(self):
         """Return the sorted list of bundled base image names.
