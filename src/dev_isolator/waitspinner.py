@@ -68,6 +68,11 @@ class WaitSpinner:
             self._line_len = max(self._line_len, len(line))
 
     def __enter__(self) -> "WaitSpinner":
+        """Start the animation and return ``self``.
+
+        Records the start time for the final summary and enables the
+        animation accordingly (only when stdout is a terminal).
+        """
         self._started = time.monotonic()
         self._animate = sys.stdout.isatty()
         if self._animate:
@@ -76,6 +81,14 @@ class WaitSpinner:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
+        """Stop the animation and finish the spinner line.
+
+        Without an exception, ``__exit__`` replaces the spinning line
+        with the ✨ summary line (or prints one when not animating).
+        With an exception, the spinning line is erased, so the
+        context manager never masks the exception's own error
+        output.
+        """
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join()

@@ -156,6 +156,15 @@ class BaseImage:
             self.addons = None
 
     def list_base_images(self):
+        """Return the sorted list of bundled base image names.
+
+        :returns: Every ``DI_BASE`` value found in the bundled base
+            Containerfiles (see :attr:`base_images`), as strings,
+            sorted alphabetically, e.g.
+            ``["ubuntu:24.04", "ubuntu:26.04"]``. Used by the
+            ``list-base`` sub command (see
+            :func:`dev_isolator.main.list_base`).
+        """
         bil = []
         for value in self.base_images.keys():
             bil.append(str(value))
@@ -192,8 +201,10 @@ class BaseImage:
         so its content reaches disk before podman reads the file
         during the build.
 
-        :returns: The tuple ``(fd, temp_container_file)`` of the
-            open file descriptor of the written file and its path.
+        :returns: The tuple ``(fd, temp_container_file, content_hash)``
+            of the open file descriptor of the written file, its path
+            and the SHA-256 hash of the Containerfile content (used
+            as part of the built image's tag).
         """
         container_file = self.base_images.get(self.base_image, None)
         base_content = container_file.read_text(encoding="utf-8")

@@ -49,4 +49,6 @@ ADDON_CONFIG_FILE_SUFFIX = ".yaml"
 ADDON_FILE_PREFIX = "addon."
 ADDON_FILE_SUFFIX = ".jinja2"
 
+#: Name of the default base image referenced by ``di init --base``
+#: (as written in a generated project ``Containerfile``).
 DEFAULT_BASE = "localhost/dev-isolator-ubuntu:26.04"

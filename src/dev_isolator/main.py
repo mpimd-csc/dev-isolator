@@ -375,6 +375,26 @@ def clean(definition, args) -> int:
 
 
 def init_project(args) -> int:
+    """Handle the ``init`` sub command.
+
+    Create the ``.devisolator`` directory of the current project
+    (or, with ``args.config``, its ``.devisolator/<config>``
+    sub-configuration) and fill it with the ``Containerfile`` and
+    ``config.yaml`` bundled with dev-isolator. When
+    ``args.init_base`` is given, the bundled ``Containerfile``'s
+    ``FROM`` instruction is rewritten to reference that base image
+    (see :func:`dev_isolator.container_file.replace_from_images`);
+    an unknown base image aborts with an error.
+
+    Existing files are kept and reported unless ``args.init_force``
+    (``init -f``) is given, in which case they are overwritten.
+
+    :param args: The parsed command line arguments (from
+        :func:`parse_args`).
+    :returns: 0 on success.
+    :raises RuntimeError: if the requested base image is not bundled
+        with dev-isolator.
+    """
     force = args.init_force
     config = args.config
 
@@ -460,6 +480,33 @@ def in_container_command(definition, command, remainder) -> int:
 
 
 def get_path(config):
+    """Locate the build context, Containerfile, config file and addon
+       directories for a project.
+
+    The ``.devisolator`` directory is found by walking up from the
+    current working directory (see :func:`search_path`); without one,
+    dev-isolator's bundled ``data`` directory is used as build
+    context. When ``config`` names a sub-configuration (a
+    subdirectory of ``.devisolator`` holding its own Containerfile,
+    ``config.yaml`` and addons), that sub-configuration is preferred
+    over the project's own files.
+
+    Every candidate is listed in precedence order: the
+    sub-configuration first, then the ``.devisolator`` directory
+    itself, then the bundled files. Only existing files (or
+    directories, for the addon search paths) are kept.
+
+    :param config: Name of the sub-configuration to use, or ``None``.
+    :returns: The tuple ``(context_dir, container_file, config_file,
+        addon_search_path)`` — build context directory, Containerfile
+        path, ``config.yaml`` path and list of addon search
+        directories, all resolved to absolute paths.
+    :raises FileNotFoundError: if no Containerfile or no config file
+        is found.
+    :raises RuntimeError: if ``config`` is given but no
+        ``.devisolator`` directory exists, or it has no such
+        sub-directory.
+    """
     di_path = search_path(DEV_ISOLATOR_DIR)
     bundle_path = BUNDLE_DIR
 
@@ -536,12 +583,15 @@ def main() -> int:
 
 
 def main_intern() -> int:
-    """Main CLI entry point.
+    """Implement :func:`main`: parse the command line, set the
+       verbosity and dispatch to the sub command's handler.
 
-    Parse the command line with ``parse_args``, apply the requested
-    verbosity and dispatch to the handler of the selected sub command.
     Without an explicit subcommand, ``shell`` is executed with the
-    default shell.
+    default shell. Commands that need no project (``init``,
+    ``list-base``, ``help``) are handled first; every other command
+    needs the ``ContainerDefintion`` of the current project
+    (located via :func:`get_path`). The ``DEVISOLATOR_CONFIG``
+    environment variable acts as the default for ``--config``.
     """
     args = parse_args()
 

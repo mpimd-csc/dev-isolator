@@ -79,6 +79,14 @@ class ContainerDefintion:
         :param context_dir: Optional path to the build context
             directory. When ``None``, the package's bundled
             ``data`` directory is used.
+        :param config_file: Path to the project's ``config.yaml``
+            determining the enabled addons. May be ``None``, in
+            which case every ``addon.*`` file is used.
+        :param addon_search_path: List of directories searched for
+            ``addon.*`` files and ``config.<addon_name>.yaml`` files.
+        :param tag: Tag variant of the image to build, so one project
+            can have several configurations in parallel. Defaults to
+            ``"default"``.
         :raises FileNotFoundError: if the resolved Containerfile does
             not exist or the referenced base image has no matching
             base Containerfile.
@@ -430,6 +438,8 @@ class ContainerDefintion:
         image_ids = frozenset(image_ids)
 
         def matches(container) -> bool:
+            """Return whether a container is removed by this cleanup:
+               by name or by originating from one of ``image_ids``."""
             name = container.name or ""
             if any(name == base or name.startswith(base + separator)
                    for base, separator in name_matchers):

@@ -261,6 +261,12 @@ class AddonsConfiguration:
         :param bundled_dir: Optional path to the directory bundled
             with dev-isolator; only used for testing. When ``None``,
             the package's bundled ``data`` directory is used.
+        :param config_file: Path to the active ``config.yaml`` file
+            determining the enabled addons; may be ``None``, in
+            which case every ``addon.*`` file is used.
+        :param addon_search_paths: List of directories searched for
+            ``addon.*`` files and ``config.<addon_name>.yaml`` files,
+            in precedence order (the first existing file wins).
         """
         self.context_dir = context_dir
         self.bundled_dir = bundled_dir

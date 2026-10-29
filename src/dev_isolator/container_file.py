@@ -39,6 +39,21 @@ from .constants import BUNDLE_DIR
 
 
 def replace_from_images(content: str, new_image: str) -> str:
+    """Replace the image of every ``FROM`` instruction in a Containerfile.
+
+    Parses ``content`` with the tree-sitter Containerfile grammar (the
+    same grammar used by :meth:`ContainerFile.get_from_image`), finds
+    every ``FROM`` instruction's image spec and replaces it with
+    ``new_image``; tags, digests and ``AS <alias>`` parts of the
+    instruction are preserved (only the image itself is replaced, so
+    ``FROM ubuntu:26.04`` becomes e.g. ``FROM
+    localhost/dev-isolator-ubuntu:26.04-something``).
+
+    :param content: The Containerfile content to modify.
+    :param new_image: The image spec to put in place of each
+        ``FROM`` instruction's current image.
+    :returns: The modified Containerfile content.
+    """
     parser = Parser(
         Language(tree_sitter_containerfile.language())
     )
@@ -49,6 +64,7 @@ def replace_from_images(content: str, new_image: str) -> str:
     replacements = []
 
     def visit(node):
+        """Collect the byte range of each ``FROM`` image spec."""
         if node.type == "from_instruction":
             for child in node.named_children:
                 if child.type == "image_spec":
@@ -302,6 +318,8 @@ class ContainerFile:
         results = []
 
         def visit(node):
+            """Append the data of one ``FROM`` instruction (if any)
+               and recurse into its children."""
             if node.type == "from_instruction":
                 image_spec = next(
                     (
@@ -315,6 +333,8 @@ class ContainerFile:
                 if image_spec is not None:
 
                     def field_text(field):
+                        """Return the raw text of an ``image_spec``
+                           child field, or ``None``."""
                         child = image_spec.child_by_field_name(field)
                         if child is None:
                             return None
