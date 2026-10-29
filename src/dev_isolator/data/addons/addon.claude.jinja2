@@ -3,6 +3,8 @@ RUN if [ -x /usr/bin/apt ]; then \
         apt update && apt install --yes curl ; \
     elif [ -x /usr/bin/dnf ]; then \
         dnf install -y curl ; \
+    elif [ -x /usr/sbin/pacman ]; then \
+        pacman -Sy --noconfirm curl ; \
     else  \
         exit 1;  \
     fi

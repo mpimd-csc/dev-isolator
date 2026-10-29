@@ -49,4 +49,4 @@ ADDON_CONFIG_FILE_SUFFIX = ".yaml"
 ADDON_FILE_PREFIX = "addon."
 ADDON_FILE_SUFFIX = ".jinja2"
 
-
+DEFAULT_BASE = "localhost/dev-isolator-ubuntu:26.04"

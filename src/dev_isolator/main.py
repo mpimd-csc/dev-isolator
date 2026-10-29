@@ -46,9 +46,10 @@ import os
 
 from textwrap import dedent
 from .container_manager import ContainerDefintion
+from .container_file import replace_from_images
 from .utils import set_verbosity, search_path, Verbosity, dprint
 from .constants import (BUNDLE_DIR, CONFIG_FILE_NAME, ADDON_DIR,
-                        DEV_ISOLATOR_DIR)
+                        DEV_ISOLATOR_DIR, DEFAULT_BASE)
 from .base_image import BaseImage
 from pathlib import Path
 
@@ -139,7 +140,15 @@ The dev-isolator command can also be abbreviated by `di`
             action="store_true",
             help="Enforce overwriting existing files."
             )
-
+    init_parser.add_argument(
+            "-b",
+            "--base",
+            dest="init_base",
+            type=str,
+            default=DEFAULT_BASE,
+            help="Specify the base image. See ``di list-base`` for possible "
+                 f"values. Default = {DEFAULT_BASE}"
+            )
     subparsers.add_parser(
             "list-base",
             help="List the base image definitions bundled with dev-isolator",
@@ -390,7 +399,22 @@ def init_project(args) -> int:
         print(f"Containerfile {container_file} already exists and will not be "
               " overwritten. Use ``init -f`` to overwrite.")
     else:
-        src_container_file.copy(container_file)
+        if args.init_base:
+            base = BaseImage()
+            lb = base.list_base_images()
+            lb_added_one = [f"dev-isolator-{x}" for x in lb]
+            lb_added_two = [f"localhost/dev-isolator-{x}" for x in lb]
+            new_image = f"localhost/dev-isolator-{args.init_base}"
+
+            if not (args.init_base in lb or args.init_base in lb_added_one
+                    or args.init_base in lb_added_two):
+                raise RuntimeError(f"Base image {args.init_base} unkwon.")
+
+            file_content = src_container_file.read_text(encoding="utf-8")
+            file_content = replace_from_images(file_content, new_image)
+            container_file.write_text(file_content)
+        else:
+            src_container_file.copy(container_file)
 
     if config_file.is_file() and not force:
         print(f"Configuration file {config_file} already exists and will not "

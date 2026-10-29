@@ -117,8 +117,8 @@ class BaseImage:
         ``ubuntu:26.04`` to ``data/base/Containerfile.ubuntu-26.04``.
     """
 
-    def __init__(self, context_dir, config_file,
-                 addon_search_path):
+    def __init__(self, context_dir=None, config_file=None,
+                 addon_search_path=None):
         """Set up the base image for a build context.
 
         :param context_dir: Path to the project's build context
