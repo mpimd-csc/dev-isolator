@@ -464,8 +464,8 @@ content hash keeps rebuilds of the same base distinct; a project `Containerfile`
 references the base by its unhashed `dev-isolator-<name>:<tag>` name, which
 dev-isolator resolves to the matching bundled base Containerfile.
 
-The bundled base images are `apt`, `dnf` or `pacman` based (Ubuntu, Fedora,
-AlmaLinux, Arch, …); this matters because a base image
+The bundled base images are `apt`, `dnf` or `pacman` based (Ubuntu, Debian,
+Fedora, AlmaLinux, Arch, …); this matters because a base image
 carries the host user block, which requires `useradd` and `getent` to exist (see
 [Project configuration](#project-configuration)). A `Containerfile` referencing
 any other image aborts with a `FileNotFoundError` ("Could not find the base image
@@ -503,6 +503,7 @@ shared by all projects, they stay installed until you remove them manually with
 
 - Base images:
   - `ubuntu:22.04`, `ubuntu:24.04`, `ubuntu:26.04` (Ubuntu)
+  - `debian:13` (Debian, trixie)
   - `fedora:43`, `fedora:44`, `fedora:45`, `fedora:rawhide` (Fedora)
   - `almalinux:9`, `almalinux:10` (AlmaLinux / RHEL)
   - `archlinux:latest` (Arch Linux)

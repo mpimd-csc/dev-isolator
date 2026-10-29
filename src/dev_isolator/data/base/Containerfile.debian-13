@@ -1,0 +1,4 @@
+# DI_BASE = debian:13
+FROM debian:13
+
+RUN apt-get update && apt install -y cmake build-essential git curl wget
