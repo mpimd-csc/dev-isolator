@@ -29,12 +29,13 @@ from .base_image import BaseImage, host_username
 from .podman_utils import get_image_id, remove_superseeded_image
 from .utils import dprint, Verbosity, get_verbosity
 from .waitspinner import WaitSpinner
-from tempfile import mkstemp
+from tempfile import mkstemp, TemporaryDirectory
 from tree_sitter import Language, Parser
 import tree_sitter_containerfile
 import podman.errors
 import podman
 import json
+from .constants import BUNDLE_DIR
 
 
 def replace_from_images(content: str, new_image: str) -> str:
@@ -137,7 +138,7 @@ class ContainerFile:
         self.base_image = BaseImage(self.context_dir, self.config_file,
                                     self.addons_search_path)
 
-    def _write_container_file(self):
+    def _write_container_file(self, directory):
         """Write the used Containerfile for the image build.
 
         The used Containerfile starts with the content of the
@@ -170,7 +171,7 @@ class ContainerFile:
             for line in file_content.splitlines():
                 print(f"[Containerfile] {line}")
 
-        fd, temp_name = mkstemp(dir=self.context_dir,
+        fd, temp_name = mkstemp(dir=directory,
                                 prefix=".containerfile.")
         temp_container_file = Path(temp_name)
         try:
@@ -226,7 +227,16 @@ class ContainerFile:
         tag = self.image_name
         _, self.base_image_name, _ = self.base_image.build(self.from_image_name)
 
-        fd, temp_container_file = self._write_container_file()
+        if self.context_dir == BUNDLE_DIR:
+            dprint(Verbosity.INFO, "Context dir is the data directory, using "
+                                   "a temporary one.")
+            temp_dir_object = TemporaryDirectory(ignore_cleanup_errors=True)
+            build_image_dir = temp_dir_object.name
+        else:
+            build_image_dir = self.context_dir
+            temp_dir_object = None
+
+        fd, temp_container_file = self._write_container_file(build_image_dir)
 
         try:
             with podman.PodmanClient() as client:
@@ -237,7 +247,7 @@ class ContainerFile:
                 dprint(Verbosity.INFO, "Building image ...")
                 with WaitSpinner(f"Building image {tag}"):
                     image, build_logs = client.images.build(
-                        path=str(self.context_dir),
+                        path=str(build_image_dir),
                         dockerfile=str(temp_container_file),
                         tag=tag,
                         rm=True,
@@ -257,6 +267,8 @@ class ContainerFile:
                 from e
         finally:
             temp_container_file.unlink(missing_ok=True)
+            if temp_dir_object is not None:
+                temp_dir_object.cleanup()
 
         if get_verbosity() >= Verbosity.TRACE:
             for entry in build_logs:

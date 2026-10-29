@@ -41,7 +41,7 @@ import json
 import jinja2
 import hashlib
 from functools import lru_cache
-from tempfile import mkstemp
+from tempfile import mkstemp, TemporaryDirectory
 
 
 def render_template(template: jinja2.Template) -> str:
@@ -132,7 +132,6 @@ class BaseImage:
             ``addon.*`` files that are appended to the base image's
             Containerfile.
         """
-        self.context_dir = Path(context_dir) if context_dir else None
         self.config_file = Path(config_file) if config_file else None
         self.addons_search_path = (addon_search_path if addon_search_path
                                    else None)
@@ -148,8 +147,8 @@ class BaseImage:
                 dprint(Verbosity.DEBUG, f"Found base image {value} in {path}")
                 self.base_images[value] = path
 
-        if self.context_dir and self.config_file and self.addons_search_path:
-            self.addons = AddonsConfiguration(self.context_dir,
+        if context_dir and self.config_file and self.addons_search_path:
+            self.addons = AddonsConfiguration(context_dir,
                                               self.bundled_dir,
                                               self.config_file,
                                               self.addons_search_path)
@@ -182,14 +181,14 @@ class BaseImage:
                     break
         return value
 
-    def write_container_file(self):
+    def write_container_file(self, directory):
         """Write the used Containerfile for the base image build.
 
         The used Containerfile is the merged content of the selected
         base Containerfile (see :meth:`merged_container_file_content`).
         At ``Verbosity.TRACE`` the content is printed to stdout.
 
-        The file is created inside ``self.context_dir`` and fsynced,
+        The file is created inside ``directory`` and fsynced,
         so its content reaches disk before podman reads the file
         during the build.
 
@@ -208,7 +207,7 @@ class BaseImage:
             for line in file_content.splitlines():
                 print(f"[Containerfile] {line}")
 
-        fd, temp_name = mkstemp(dir=self.context_dir,
+        fd, temp_name = mkstemp(dir=directory,
                                 prefix=".containerfile.")
         temp_container_file = Path(temp_name)
         try:
@@ -271,7 +270,10 @@ class BaseImage:
                                "tag") from e
         self.name = image.split(":")[0]
 
-        fd, temp_container_file, content_hash = self.write_container_file()
+        temp_dir_object = TemporaryDirectory(ignore_cleanup_errors=True)
+        temp_dir = temp_dir_object.name
+
+        fd, temp_container_file, content_hash = self.write_container_file(temp_dir)
         image_tag = f"dev-isolator-{self.name}:{self.tag}-{content_hash}"
         dprint(Verbosity.INFO, "Created temporary Containerfile "
                                f"{temp_container_file}")
@@ -283,7 +285,7 @@ class BaseImage:
                        f"{image_tag} ...")
                 with WaitSpinner(f"Building base image {image_tag}"):
                     image, build_logs = client.images.build(
-                        path=str(self.base_image_dir),
+                        path=str(temp_dir),
                         dockerfile=str(temp_container_file),
                         tag=image_tag,
                         rm=True,
@@ -303,6 +305,8 @@ class BaseImage:
         finally:
             if temp_container_file is not None:
                 temp_container_file.unlink(missing_ok=True)
+            if temp_dir_object is not None:
+                temp_dir_object.cleanup()
 
         if get_verbosity() >= Verbosity.TRACE:
             for entry in build_logs:

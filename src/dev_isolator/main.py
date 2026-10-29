@@ -437,7 +437,7 @@ def list_base() -> int:
     :mod:`dev_isolator.base_image`).  Unlike the project commands, it
     needs no ``.devisolator`` directory.  Returns 0.
     """
-    base = BaseImage(None, None, None)
+    base = BaseImage()
     for bi in base.list_base_images():
         print(f"localhost/dev-isolator-{bi}")
     return 0
