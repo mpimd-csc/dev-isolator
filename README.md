@@ -55,6 +55,7 @@ dev-isolator [--verbose/-v]... [--shell/-s <shell>] [--config/-c <name>] <subcom
 
 | Subcommand | Description |
 |---|---|
+| `init` | Initialize the local `.devisolator` configuration. |
 | `build` | Build the image of the current project. |
 | `shell` | Open an interactive shell inside the container. |
 | `run <command> [args...]` | Run an arbitrary command inside the container. |
@@ -64,10 +65,47 @@ dev-isolator [--verbose/-v]... [--shell/-s <shell>] [--config/-c <name>] <subcom
 | `list-base` | List the base image definitions bundled with dev-isolator. |
 
 Without an explicit subcommand, `shell` runs with the default shell (`bash`).
-`opencode`, `claude` and `run` pass all following (unknown) arguments through to
+`dev-isolator help` (or `-h` on any subcommand) prints the help. `opencode`,
+`claude` and `run` pass all following (unknown) arguments through to
 the command inside the container; their own options are not parsed by
 dev-isolator.
 
+### `init`
+
+```bash
+dev-isolator init
+dev-isolator init -b fedora:43    # base the new Containerfile on Fedora 43
+dev-isolator --config gpu init    # initialize the "gpu" sub-configuration
+```
+
+Initializes the local configuration of the current project (see
+[Typical workflow](#typical-workflow)): it creates the `.devisolator` directory
+and fills it with the `Containerfile` and `config.yaml` bundled with
+dev-isolator:
+
+- `config.yaml` enables the bundled `opencode` and `claude` addons and
+  declares no extra `environment`/`volumes` settings; edit it to your needs
+  (see [Project configuration](#project-configuration)).
+- The `Containerfile`'s single `FROM` instruction references a dev-isolator
+  base image. By default that is `ubuntu:26.04`; with `--base`/`-b` a different
+  bundled base image can be selected — pass a plain base name such as
+  `ubuntu:26.04` (the full `dev-isolator-…`/`localhost/dev-isolator-…` forms
+  printed by `list-base` are accepted as well, and are normalized to avoid a
+  doubled prefix; see [Base images](#base-images)).
+
+Existing files are kept and reported; pass `--force`/`-f` to overwrite them.
+Like `list-base`, `init` needs no pre-existing `.devisolator` directory, so it
+can be run in a fresh checkout; an unknown base image aborts with an error
+(exit code 255).
+
+With `--config <name>`, `init` creates the sub-configuration directory
+`.devisolator/<name>/` instead (see
+[Sub-configurations (`--config`)](#sub-configurations---config)) and writes the
+same bundled files there — the sub-configuration then overrides the project's
+default `Containerfile` and `config.yaml` per the lookup precedence described
+below (`--base` and `--force` apply in the same way). Note that `--config
+default` explicitly selects the default configuration, i.e. it is ignored here
+as everywhere else, and the bare `.devisolator/` directory is initialized.
 ### `build`
 
 ```bash
@@ -236,6 +274,12 @@ merged):
 1. `.devisolator/<name>/` — the sub-configuration itself.
 2. `.devisolator/` — the project's default configuration.
 3. The files bundled with dev-isolator.
+
+A sub-configuration is created with `dev-isolator --config <name> init`, which
+writes the bundled `Containerfile` (rewritten to the requested `--base` image)
+and `config.yaml` directly into `.devisolator/<name>/` (see
+[`init`](#init)) — everything the directory does not contain then falls back
+through this chain.
 
 Because the project defaults sit in the middle of this chain, a sub-configuration
 only *overrides* the files it actually contains: a `gpu/` directory holding just a
@@ -420,8 +464,8 @@ content hash keeps rebuilds of the same base distinct; a project `Containerfile`
 references the base by its unhashed `dev-isolator-<name>:<tag>` name, which
 dev-isolator resolves to the matching bundled base Containerfile.
 
-The bundled base images only use `apt` or `dnf` based distributions (Ubuntu,
-Debian, Fedora, AlmaLinux, RockyLinux, …); this matters because a base image
+The bundled base images are `apt`, `dnf` or `pacman` based (Ubuntu, Fedora,
+AlmaLinux, Arch, …); this matters because a base image
 carries the host user block, which requires `useradd` and `getent` to exist (see
 [Project configuration](#project-configuration)). A `Containerfile` referencing
 any other image aborts with a `FileNotFoundError` ("Could not find the base image
@@ -461,11 +505,34 @@ shared by all projects, they stay installed until you remove them manually with
   - `ubuntu:22.04`, `ubuntu:24.04`, `ubuntu:26.04` (Ubuntu)
   - `fedora:43`, `fedora:44`, `fedora:45`, `fedora:rawhide` (Fedora)
   - `almalinux:9`, `almalinux:10` (AlmaLinux / RHEL)
+  - `archlinux:latest` (Arch Linux)
 - Addons:
   - `opencode`, installs the `opencode` CLI tool
   - `claude`, installs the `claude` CLI tool
 
 ### Typical workflow
+
+```bash
+cd /home/user/projects/my-project
+
+# Create .devisolator/ with a Containerfile and config.yaml
+# (base the Containerfile on ubuntu:24.04):
+dev-isolator init -b ubuntu:24.04
+
+cat >> .devisolator/Containerfile <<'EOF'
+RUN apt-get update && apt-get install --yes build-essential python3-pip python3-venv
+EOF
+echo "addons: [opencode]" >> .devisolator/config.yaml
+
+dev-isolator build          # builds the shared base image (once), then
+                            # dev-isolator:home-user-projects-my-project--default
+dev-isolator                # open a bash inside the container
+dev-isolator run make test  # or run a single command
+dev-isolator clean          # remove the image again (the base image stays)
+```
+
+The same setup can also be created by hand: create the `.devisolator` folder in
+the project root and write the files yourself:
 
 ```bash
 cd /home/user/projects/my-project
@@ -475,12 +542,6 @@ FROM localhost/dev-isolator-ubuntu:24.04
 RUN apt-get update && apt-get install --yes build-essential python3-pip python3-venv
 EOF
 echo "addons: [opencode]" > .devisolator/config.yaml
-
-dev-isolator build          # builds the shared base image (once), then
-                            # dev-isolator:home-user-projects-my-project--default
-dev-isolator                # open a bash inside the container
-dev-isolator run make test  # or run a single command
-dev-isolator clean          # remove the image again (the base image stays)
 ```
 
 ## Examples: a `.devisolator` folder

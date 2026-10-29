@@ -380,11 +380,13 @@ def init_project(args) -> int:
     Create the ``.devisolator`` directory of the current project
     (or, with ``args.config``, its ``.devisolator/<config>``
     sub-configuration) and fill it with the ``Containerfile`` and
-    ``config.yaml`` bundled with dev-isolator. When
-    ``args.init_base`` is given, the bundled ``Containerfile``'s
-    ``FROM`` instruction is rewritten to reference that base image
-    (see :func:`dev_isolator.container_file.replace_from_images`);
-    an unknown base image aborts with an error.
+    ``config.yaml`` bundled with dev-isolator. The bundled
+    ``Containerfile``'s ``FROM`` instruction is always rewritten to
+    reference the selected base image: ``args.init_base`` (default
+    ``localhost/dev-isolator-ubuntu:26.04``) is normalized by
+    stripping an optional ``localhost/dev-isolator-`` or
+    ``dev-isolator-`` prefix; an unknown base image aborts with an
+    error.
 
     Existing files are kept and reported unless ``args.init_force``
     (``init -f``) is given, in which case they are overwritten.
@@ -422,13 +424,20 @@ def init_project(args) -> int:
         if args.init_base:
             base = BaseImage()
             lb = base.list_base_images()
-            lb_added_one = [f"dev-isolator-{x}" for x in lb]
-            lb_added_two = [f"localhost/dev-isolator-{x}" for x in lb]
-            new_image = f"localhost/dev-isolator-{args.init_base}"
 
-            if not (args.init_base in lb or args.init_base in lb_added_one
-                    or args.init_base in lb_added_two):
-                raise RuntimeError(f"Base image {args.init_base} unkwon.")
+            # Accept the plain base name (`ubuntu:26.04`) as well as
+            # the image names printed by ``list-base``; both are
+            # normalized so the FROM instruction never ends up with a
+            # doubled prefix.
+            base_name = args.init_base
+            for prefix in ("localhost/dev-isolator-", "dev-isolator-"):
+                if base_name.startswith(prefix):
+                    base_name = base_name.removeprefix(prefix)
+                    break
+            if base_name not in lb:
+                raise RuntimeError(
+                    f"Base image {args.init_base} unknown.")
+            new_image = f"localhost/dev-isolator-{base_name}"
 
             file_content = src_container_file.read_text(encoding="utf-8")
             file_content = replace_from_images(file_content, new_image)
