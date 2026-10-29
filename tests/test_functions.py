@@ -489,6 +489,15 @@ class TestCleanParser:
         assert args.clean_all is True
 
 
+class TestHelpParser:
+    """Test the CLI arguments of the help subcommand."""
+
+    def test_help_is_recognized(self):
+        parser = create_parser()
+        args = parser.parse_args(["help"])
+        assert args.command == "help"
+
+
 class TestOpencodeParser:
     """Test the CLI arguments of the opencode subcommand."""
 

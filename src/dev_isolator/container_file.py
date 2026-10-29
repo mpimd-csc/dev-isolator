@@ -91,18 +91,17 @@ class ContainerFile:
             raise RuntimeError("The supplied Containerfile contains more than"
                                " one FROM statement.")
         result = result[0]
-        base_image = result.get("image", "xxx")
+        base_image_name = result.get("image", "xxx")
         base_image_tag = result.get("tag", None)
-        if not (base_image.startswith("localhost/dev-isolator-") or
-                base_image.startswith("dev-isolator-")):
+        if not (base_image_name.startswith("localhost/dev-isolator-") or
+                base_image_name.startswith("dev-isolator-")):
             raise RuntimeError(f"The setup in {self.container_file} does not "
                                "use a dev-isolator image as base. Got "
-                               f"{base_image}")
-        base_image = f"{base_image}{base_image_tag}"
+                               f"{base_image_name}")
+        self.from_image_name = f"{base_image_name}{base_image_tag}"
 
         self.base_image = BaseImage(self.context_dir, self.config_file,
                                     self.addons_search_path)
-        _, self.base_image_name, _ = self.base_image.build(base_image)
 
     def _write_container_file(self):
         """Write the used Containerfile for the image build.
@@ -191,6 +190,7 @@ class ContainerFile:
         :raises RuntimeError: if the podman build fails.
         """
         tag = self.image_name
+        _, self.base_image_name, _ = self.base_image.build(self.from_image_name)
 
         fd, temp_container_file = self._write_container_file()
 

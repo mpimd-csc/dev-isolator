@@ -25,6 +25,8 @@ The sub commands are:
     remove its image (or, with ``--all``, every dev-isolator image and
     container, or with ``--local``, every image and container of the
     current project).
+``list-base``
+    List the base image definitions bundled with dev-isolator.
 
 The ``--shell/-s`` option, given before the sub command, selects the
 shell used by ``shell`` and by ``run``/``opencode``/``claude`` when they
@@ -41,10 +43,13 @@ SPDX-License-Identifier: GPL-3.0-or-later
 import argparse
 import sys
 import os
+
 from textwrap import dedent
 from .container_manager import ContainerDefintion
 from .utils import set_verbosity, search_path, Verbosity, dprint
-from .constants import BUNDLE_DIR, CONFIG_FILE_NAME, ADDON_DIR
+from .constants import (BUNDLE_DIR, CONFIG_FILE_NAME, ADDON_DIR,
+                        DEV_ISOLATOR_DIR)
+from .base_image import BaseImage
 from pathlib import Path
 
 DEFAULT_SHELL = "bash"
@@ -82,6 +87,7 @@ examples:
   dev-isolator run make test      run "make test" inside the container
   dev-isolator opencode           run opencode inside the container
   dev-isolator clean --all        remove every dev-isolator image
+  dev-isolator list-base          list the available base image definitions
 
 The dev-isolator command can also be abbreviated by `di`
         """
@@ -120,6 +126,27 @@ The dev-isolator command can also be abbreviated by `di`
              "``config.yaml``) to use instead of the project's default "
              "one."
     )
+
+    init_parser = subparsers.add_parser(
+            "init",
+            help="Initialize a clean local configuration. Sub-configurations"
+                 " are also allowed by specifying the ``--config``` flag.",
+            description="Initialize a local configuration.")
+    init_parser.add_argument(
+            "-f",
+            "--force",
+            dest="init_force",
+            action="store_true",
+            help="Enforce overwriting existing files."
+            )
+
+    subparsers.add_parser(
+            "list-base",
+            help="List the base image definitions bundled with dev-isolator",
+            description="List the base image definitions bundled with "
+                        "dev-isolator, i.e. the images a project "
+                        "``Containerfile`` can use as its base."
+            )
 
     build_parser = subparsers.add_parser(
         "build",
@@ -195,6 +222,12 @@ The dev-isolator command can also be abbreviated by `di`
              "following arguments through to it "
              "(for example ``run make test``).",
         )
+
+    subparsers.add_parser(
+        "help",
+        help="Show this help message and exit.",
+        description="Show the dev-isolator help message and exit.",
+    )
 
     return parser
 
@@ -332,6 +365,60 @@ def clean(definition, args) -> int:
     return 0
 
 
+def init_project(args) -> int:
+    force = args.init_force
+    config = args.config
+
+    if config:
+        container_file = (Path(os.getcwd()) / DEV_ISOLATOR_DIR / config
+                          / "Containerfile")
+        config_file = (Path(os.getcwd()) / DEV_ISOLATOR_DIR / config
+                       / CONFIG_FILE_NAME)
+        user_dir = Path(os.getcwd()) / DEV_ISOLATOR_DIR / config
+    else:
+        container_file = (Path(os.getcwd()) / DEV_ISOLATOR_DIR
+                          / "Containerfile")
+        config_file = (Path(os.getcwd()) / DEV_ISOLATOR_DIR
+                       / CONFIG_FILE_NAME)
+        user_dir = Path(os.getcwd()) / DEV_ISOLATOR_DIR
+
+    user_dir.mkdir(parents=True, exist_ok=True)
+    src_container_file = Path(BUNDLE_DIR) / "Containerfile"
+    src_config_file = Path(BUNDLE_DIR) / CONFIG_FILE_NAME
+
+    if container_file.is_file() and not force:
+        print(f"Containerfile {container_file} already exists and will not be "
+              " overwritten. Use ``init -f`` to overwrite.")
+    else:
+        src_container_file.copy(container_file)
+
+    if config_file.is_file() and not force:
+        print(f"Configuration file {config_file} already exists and will not "
+              "be overwritten. Use ``init -f`` to overwrite.")
+    else:
+        src_config_file.copy(config_file)
+
+    print(f"Created new config in {user_dir}")
+
+    return 0
+
+
+def list_base() -> int:
+    """Handle the ``list-base`` sub command.
+
+    Print every base image definition bundled with dev-isolator, one per
+    line, as ``localhost/dev-isolator-<name>:<tag>`` (for example
+    ``localhost/dev-isolator-ubuntu:24.04``).  These are the names a
+    project ``Containerfile`` may reference as its base image (see
+    :mod:`dev_isolator.base_image`).  Unlike the project commands, it
+    needs no ``.devisolator`` directory.  Returns 0.
+    """
+    base = BaseImage(None, None, None)
+    for bi in base.list_base_images():
+        print(f"localhost/dev-isolator-{bi}")
+    return 0
+
+
 def in_container_command(definition, command, remainder) -> int:
     """Run ``command`` with ``remainder`` as its arguments inside the
     container of the current project.
@@ -349,11 +436,11 @@ def in_container_command(definition, command, remainder) -> int:
 
 
 def get_path(config):
-    di_path = search_path(".devisolator")
-    bundle_path = Path(__file__).parent / BUNDLE_DIR
+    di_path = search_path(DEV_ISOLATOR_DIR)
+    bundle_path = BUNDLE_DIR
 
     if not di_path:
-        context_dir = Path(__file__).parent / BUNDLE_DIR
+        context_dir = bundle_path
     else:
         context_dir = di_path.parent
 
@@ -434,12 +521,23 @@ def main_intern() -> int:
     """
     args = parse_args()
 
+    if args.command == "help":
+        create_parser().print_help()
+        return 0
+
     set_verbosity(Verbosity(args.verbose))
 
     if os.getenv("DEVISOLATOR_CONFIG") and not args.config:
         args.config = os.getenv("DEVISOLATOR_CONFIG")
     if args.config == "default":
         args.config = None
+
+    # Commands that do not require an initialized ContainerDefintion object
+    if args.command == "init":
+        return init_project(args)
+    if args.command == "list-base":
+        return list_base()
+
 
     context_dir, container_file, config_file, addon_search_path = get_path(
         args.config)

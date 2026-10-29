@@ -360,8 +360,7 @@ class AddonsConfiguration:
         """
         file_name = (f"{ADDON_CONFIG_FILE_PREFIX}{addon_name}"
                      f"{ADDON_CONFIG_FILE_SUFFIX}")
-        for directory in (self.context_dir / DEV_ISOLATOR_DIR,
-                          self.bundled_dir):
+        for directory in self.addon_search_paths:
             candidate = directory / file_name
             dprint(Verbosity.TRACE, f"Try addon config file {candidate}")
             resolved = candidate.resolve()

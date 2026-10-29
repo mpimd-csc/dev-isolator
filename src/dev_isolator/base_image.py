@@ -132,13 +132,15 @@ class BaseImage:
             ``addon.*`` files that are appended to the base image's
             Containerfile.
         """
-        self.context_dir = Path(context_dir)
+        self.context_dir = Path(context_dir) if context_dir else None
         self.config_file = Path(config_file) if config_file else None
-        self.addons_search_path = addon_search_path
-        self.bundled_dir = Path(__file__).parent / BUNDLE_DIR
+        self.addons_search_path = (addon_search_path if addon_search_path
+                                   else None)
+        self.bundled_dir = BUNDLE_DIR
 
         self.base_image_dir = self.bundled_dir / "base"
         dprint(Verbosity.INFO, f"Base image dir: {self.base_image_dir}")
+
         self.base_images = {}
         for path in sorted(self.base_image_dir.glob("Containerfile.*")):
             value = self._parse_di_base(path)
@@ -146,9 +148,20 @@ class BaseImage:
                 dprint(Verbosity.DEBUG, f"Found base image {value} in {path}")
                 self.base_images[value] = path
 
-        self.addons = AddonsConfiguration(self.context_dir, self.bundled_dir,
-                                          self.config_file,
-                                          self.addons_search_path)
+        if self.context_dir and self.config_file and self.addons_search_path:
+            self.addons = AddonsConfiguration(self.context_dir,
+                                              self.bundled_dir,
+                                              self.config_file,
+                                              self.addons_search_path)
+        else:
+            self.addons = None
+
+    def list_base_images(self):
+        bil = []
+        for value in self.base_images.keys():
+            bil.append(str(value))
+        bil.sort()
+        return bil
 
     def _parse_di_base(self, path):
         """Return the DI-BASE value from the file's first comment block."""

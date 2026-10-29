@@ -36,6 +36,7 @@ def slugify_path(path: str | os.PathLike) -> str:
     text = str(path)
     return re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
 
+
 class ContainerDefintion:
     """Define, build and run the dev-isolator container for a project.
 
@@ -94,7 +95,7 @@ class ContainerDefintion:
         else:
             self.tag = "default"
 
-        self.bundled_dir = Path(__file__).parent / BUNDLE_DIR
+        self.bundled_dir = BUNDLE_DIR
         self.addons = AddonsConfiguration(self.context_dir, self.bundled_dir,
                                           self.config_file,
                                           self.addons_search_path)

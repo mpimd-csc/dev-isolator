@@ -61,6 +61,7 @@ dev-isolator [--verbose/-v]... [--shell/-s <shell>] [--config/-c <name>] <subcom
 | `opencode [args...]` | Run [opencode](https://opencode.ai/) inside the container. |
 | `claude [args...]` | Run [claude](https://claude.ai/) inside the container. |
 | `clean` | Remove dev-isolator images. |
+| `list-base` | List the base image definitions bundled with dev-isolator. |
 
 Without an explicit subcommand, `shell` runs with the default shell (`bash`).
 `opencode`, `claude` and `run` pass all following (unknown) arguments through to
@@ -177,6 +178,19 @@ never removed by `clean`; see [Base image cleanup](#base-image-cleanup).
 |---|---|
 | `--all`, `-a` | Remove all dev-isolator images instead of only the current one. |
 | `--local`, `-l` | Remove every dev-isolator image of the current project (all tag variants) instead of only the current one. Mutually exclusive with `--all`. |
+
+### `list-base`
+
+```bash
+dev-isolator list-base
+```
+
+Lists the base image definitions bundled with dev-isolator, one per line as
+`localhost/dev-isolator-<name>:<tag>` (for example `localhost/dev-isolator-ubuntu:24.04`).
+These are the names a project [`Containerfile`](#base-images) can use in its `FROM`
+instruction (see [Base images](#base-images)). Unlike the other subcommands,
+`list-base` needs no initialized `.devisolator` directory and works from any
+location.
 
 ### Discovery of the project directory
 

@@ -29,7 +29,7 @@ ADDON_DIR = Path(__file__).parent / "data" / "addons"
 
 #: Directory bundled with dev-isolator holding the default
 #: ``Containerfile``, the addon templates and the addon configs.
-BUNDLE_DIR = "data"
+BUNDLE_DIR = Path(__file__).parent / "data"
 
 #: Directory inside a project that holds the project-specific
 #: Containerfile and configuration.
