@@ -5,6 +5,8 @@ RUN if [ -x /usr/bin/apt ]; then \
         dnf install -y curl git jq gnupg; \
     elif [ -x /usr/sbin/pacman ]; then \
         pacman -Sy --noconfirm curl git jq gnupg ; \
+    elif [ -x /usr/bin/zypper ]; then \
+        zypper --non-interactive install curl ca-certificates git gnupg jq ; \
     else  \
         exit 1;  \
     fi

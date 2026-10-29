@@ -2,7 +2,8 @@ FROM localhost/dev-isolator-ubuntu:26.04
 
 
 #
-# This default Containerfile works on apt and dnf based distributions.
+# This default Containerfile works on apt, dnf, zypper and pacman
+# based distributions.
 # Consider removing the blocks not matching your desired distribution.
 #
 
@@ -14,6 +15,11 @@ RUN if [ -x /usr/bin/apt ]; then \
 # Base packages for Fedora/AlmaLinux
 RUN if [ -x /usr/bin/dnf ]; then \
     dnf install -y gcc gcc-gfortran cmake ninja-build python3-devel python3-pip ;\
+    fi
+
+# Base packages for openSUSE
+RUN if [ -x /usr/bin/zypper ]; then \
+    zypper --non-interactive install gcc gcc-fortran cmake ninja make python3 python3-pip ;\
     fi
 
 # ArchLinux based
