@@ -33,6 +33,18 @@ Then install `dev-isolator` from a source checkout:
 pip install -e .
 ```
 
+Alternatively, install it with
+[`pipx`](https://pipx.pypa.io/stable/), which runs the CLI in an
+isolated virtual environment without touching your main Python
+environment:
+
+```bash
+pipx install . 
+```
+from the source directory.
+
+Both `dev-isolator` and `di` end up on your `PATH` this way.
+
 Run the test suite with `pytest`.
 
 ## Usage

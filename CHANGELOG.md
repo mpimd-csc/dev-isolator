@@ -18,3 +18,5 @@ Version 0.1
   build context and removed afterwards, so podman-py does not copy it
   itself and leave stale ``.containerfile.*`` artifacts in the
   project directory.
+* The README documents how to install the tool with ``pipx`` which
+  provides both ``dev-isolator`` and ``di`` on the ``PATH``.
