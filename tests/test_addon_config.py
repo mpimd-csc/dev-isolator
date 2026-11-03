@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 import pytest
-from dev_isolator.addons_config import parse_volume_spec, \
+from dev_isolator.config import parse_volume_spec, \
     read_environment_and_volumes, resolve_env_references, \
     run_settings_from_config
 from dev_isolator.base_image import BaseImage

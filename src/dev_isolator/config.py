@@ -43,42 +43,6 @@ def addon_name(path: Path) -> str:
         ADDON_FILE_SUFFIX)
 
 
-def read_enabled_addons(config_file: Path) -> set[str]:
-    """Return the addon names enabled in a config (``config.yaml``) file.
-
-    The file is expected to have the shape::
-
-        addons:
-          - opencode
-          - my-addon
-
-    :param config_file: Path to the config file (``config.yaml``).
-    :returns: The set of enabled addon names (possibly empty).
-    :raises RuntimeError: if the file is not valid YAML, does not
-        contain a mapping, or the ``addons`` entry is not a
-        list.
-    """
-    try:
-        data = yaml.safe_load(config_file.read_text(encoding="utf-8"))
-    except yaml.YAMLError as e:
-        raise RuntimeError(
-            f"Invalid config file {config_file}: {e}") from e
-    if data is None:
-        return set()
-    if not isinstance(data, dict):
-        raise RuntimeError(
-            f"Invalid config file {config_file}: "
-            "expected a mapping with an 'addons' key")
-    enabled = data.get("addons")
-    if enabled is None:
-        return set()
-    if not isinstance(enabled, list):
-        raise RuntimeError(
-            f"Invalid config file {config_file}: "
-            "'addons' must be a list of addon names")
-    return {str(name) for name in enabled}
-
-
 def read_environment_and_volumes(config_file: Path) -> dict:
     """Return the ``environment`` and ``volumes`` entries of a config
     file (the main ``config.yaml`` or an addon
@@ -173,61 +137,6 @@ def parse_volume_spec(spec: str) -> tuple[str, str, str]:
     return host, container_path, mode
 
 
-def run_settings_from_config(config: dict) -> tuple[dict[str, str], dict[str, dict]]:
-    """Turn a parsed config mapping into the environment/volumes dicts.
-
-    Applies the shared processing used for both the main ``config.yaml``
-    and an addon ``config.<addon_name>.yaml`` to the mapping returned by
-    :func:`read_environment_and_volumes`:
-
-    - ``environment`` entries are either ``NAME``, which is taken
-      from the host environment (variables that are not set on the
-      host are skipped with a message), or ``NAME=value``, where
-      ``value`` is used as-is.
-    - ``volumes`` holds ``host:container[:mode]`` specs; ``ENV[VAR]``
-      references are resolved (a spec referencing an unset variable is
-      skipped) and then ``~`` and ``${VAR}`` in the host path are
-      expanded.
-
-    :param config: The mapping as returned by
-        :func:`read_environment_and_volumes`.
-    :returns: The tuple ``(environment, volumes)`` where ``environment``
-        maps variable names to their values and ``volumes`` maps
-        expanded host paths to ``{"bind": container_path, "mode": mode}``
-        dicts, in the shape expected by the podman bindings'
-        ``containers.create()``.
-    """
-    environment: dict[str, str] = {}
-    volumes: dict[str, dict] = {}
-    for entry in config["environment"]:
-        name, sep, value = entry.partition("=")
-        if name and not sep:
-            # Only a name: copy the variable from the host environment.
-            value = os.environ.get(name)
-            if value is None:
-                dprint(Verbosity.TRACE,
-                       f"Environment variable {name} is not set; skipping")
-                continue
-        elif not name:
-            dprint(Verbosity.TRACE,
-                   f"Invalid environment entry '{entry}'; skipping")
-            continue
-        environment[name] = value
-    for spec in config["volumes"]:
-        host, container_path, mode = parse_volume_spec(spec)
-        host = resolve_env_references(host)
-        container_path = resolve_env_references(container_path)
-        mode = resolve_env_references(mode)
-        if host is None or container_path is None or mode is None:
-            dprint(Verbosity.TRACE, f"Skipping {spec} due to missing "
-                                    "environment variables.")
-            continue
-        host = os.path.expanduser(os.path.expandvars(host))
-        container_path = os.path.expanduser(
-                os.path.expandvars(container_path))
-        volumes[host] = {"bind": container_path, "mode": mode}
-    return environment, volumes
-
 
 class AddonsConfiguration:
     """Locate and read the configuration files controlling the addons.
@@ -275,6 +184,18 @@ class AddonsConfiguration:
         self._enabled_addons = _UNSET
         self._addon_files = _UNSET
 
+        try:
+            self.yaml_data = (yaml.safe_load(
+                              config_file.read_text(encoding="utf-8")))
+        except yaml.YAMLError as e:
+            raise RuntimeError(
+                f"Invalid config file {config_file}: {e}") from e
+        if self.yaml_data is None:
+            self.yaml_data = {}
+        if not isinstance(self.yaml_data, dict):
+            raise RuntimeError(f"Invalid config file {config_file}: "
+                               "expected a mapping with an 'addons' key")
+
     def enabled_addons(self) -> set[str] | None:
         """Return the names of the enabled addons.
 
@@ -294,18 +215,21 @@ class AddonsConfiguration:
         :raises RuntimeError: if a ``config.yaml`` file is invalid.
         """
         if self._enabled_addons is _UNSET:
-            if not self.config_file:
-                enabled = None
-            else:
-                names = read_enabled_addons(self.config_file)
-                enabled = set(names)
-                dprint(Verbosity.INFO,
-                       f"Addons enabled in {self.config_file}: "
-                       f"{sorted(names)}")
+            enabled = self.yaml_data.get("addons", None)
+            if enabled is None:
+                return set()
+            if not isinstance(enabled, list):
+                raise RuntimeError(f"Invalid config file {self.config_file}: "
+                                   "'addons' must be a list of addon names")
+            enabled = set({str(name) for name in enabled})
+
+            dprint(Verbosity.INFO,
+                   f"Addons enabled in {self.config_file}: "
+                   f"{sorted(enabled)}")
             self._enabled_addons = enabled
         return self._enabled_addons
 
-    def addon_files(self):
+    def list_addon_files(self):
         """Return all ``addon.*`` files appended to the Containerfile.
 
         The addons bundled with dev-isolator come first, followed by
@@ -400,15 +324,22 @@ class AddonsConfiguration:
         """
         environment: dict[str, str] = {}
         volumes: dict[str, dict] = {}
-        for addon in self.addon_files():
+        for addon in self.list_addon_files():
             name = addon_name(addon)
             config_file = self.addon_config_file(name)
             if not config_file:
                 continue
             dprint(Verbosity.INFO,
                    f"Addon config for {name}: {config_file}")
-            addon_environment, addon_volumes = run_settings_from_config(
-                read_environment_and_volumes(config_file))
+            try:
+                data = yaml.safe_load(config_file.read_text(encoding="utf-8"))
+            except Exception as e:
+                raise RuntimeError(f"Failed to load addon config {config_file}"
+                                   ": {e}") from e
+
+            addon_environment = self._get_environment(data)
+            addon_volumes = self._get_volumes(data)
+
             environment |= addon_environment
             volumes |= addon_volumes
         dprint(Verbosity.TRACE, f"Environment: {str(environment)}")
@@ -416,7 +347,7 @@ class AddonsConfiguration:
 
         return environment, volumes
 
-    def config_run_settings(self) -> tuple[dict[str, str], dict[str, dict]]:
+    def config_environment(self) -> dict[str, str]:
         """Return the environment variables and volume mounts declared
         in the active ``config.yaml``.
 
@@ -431,10 +362,116 @@ class AddonsConfiguration:
             ``config.yaml`` exists at all.
         :raises RuntimeError: if the ``config.yaml`` is invalid.
         """
-        config_file = self.config_file
-        if not config_file:
-            return {}, {}
-        dprint(Verbosity.INFO,
-               f"Project config for environment and volumes: {config_file}")
-        return run_settings_from_config(
-            read_environment_and_volumes(config_file))
+        return self._get_environment(self.yaml_data)
+
+    def config_volumes(self) -> dict[str, dict]:
+        """Return the environment variables and volume mounts declared
+        in the active ``config.yaml``.
+
+        The ``environment`` entries are either ``NAME`` (taken from
+        the host) or ``NAME=value`` (used as given); the ``volumes``
+        entries are ``host:container[:mode]`` specs;
+        both are processed exactly like those of an addon config file
+        (see :func:`run_settings_from_config`).
+
+        :returns: The tuple ``(environment, volumes)`` in the same shape
+            as :meth:`addon_run_settings`, or ``({}, {})`` when no
+            ``config.yaml`` exists at all.
+        :raises RuntimeError: if the ``config.yaml`` is invalid.
+        """
+        return self._get_volumes(self.yaml_data)
+
+    def build_get_local_context(self):
+        build = self.yaml_data.get("build", {})
+
+        return bool(build.get("local_context", False))
+
+    #
+    # Internal Routines
+    #
+    def _get_volumes(self, config: dict) -> dict[str, dict]:
+        """Turn a parsed config mapping into the environment/volumes dicts.
+
+        Applies the shared processing used for both the main ``config.yaml``
+        and an addon ``config.<addon_name>.yaml`` to the mapping returned by
+        :func:`read_environment_and_volumes`:
+
+        - ``environment`` entries are either ``NAME``, which is taken
+          from the host environment (variables that are not set on the
+          host are skipped with a message), or ``NAME=value``, where
+          ``value`` is used as-is.
+        - ``volumes`` holds ``host:container[:mode]`` specs; ``ENV[VAR]``
+          references are resolved (a spec referencing an unset variable is
+          skipped) and then ``~`` and ``${VAR}`` in the host path are
+          expanded.
+
+        :param config: The mapping as returned by
+            :func:`read_environment_and_volumes`.
+        :returns: The tuple ``(environment, volumes)`` where ``environment``
+            maps variable names to their values and ``volumes`` maps
+            expanded host paths to ``{"bind": container_path, "mode": mode}``
+            dicts, in the shape expected by the podman bindings'
+            ``containers.create()``.
+        """
+        volumes: dict[str, dict] = {}
+
+        volume_entries = config.get("volumes", [])
+        for spec in volume_entries:
+            host, container_path, mode = parse_volume_spec(spec)
+            host = resolve_env_references(host)
+            container_path = resolve_env_references(container_path)
+            mode = resolve_env_references(mode)
+            if host is None or container_path is None or mode is None:
+                dprint(Verbosity.TRACE, f"Skipping {spec} due to missing "
+                                        "environment variables.")
+                continue
+            host = os.path.expanduser(os.path.expandvars(host))
+            container_path = os.path.expanduser(
+                    os.path.expandvars(container_path))
+            volumes[host] = {"bind": container_path, "mode": mode}
+
+        return volumes
+
+    def _get_environment(self, config: dict) -> dict[str, str]:
+        """Turn a parsed config mapping into the environment/volumes dicts.
+
+        Applies the shared processing used for both the main ``config.yaml``
+        and an addon ``config.<addon_name>.yaml`` to the mapping returned by
+        :func:`read_environment_and_volumes`:
+
+        - ``environment`` entries are either ``NAME``, which is taken
+          from the host environment (variables that are not set on the
+          host are skipped with a message), or ``NAME=value``, where
+          ``value`` is used as-is.
+        - ``volumes`` holds ``host:container[:mode]`` specs; ``ENV[VAR]``
+          references are resolved (a spec referencing an unset variable is
+          skipped) and then ``~`` and ``${VAR}`` in the host path are
+          expanded.
+
+        :param config: The mapping as returned by
+            :func:`read_environment_and_volumes`.
+        :returns: The tuple ``(environment, volumes)`` where ``environment``
+            maps variable names to their values and ``volumes`` maps
+            expanded host paths to ``{"bind": container_path, "mode": mode}``
+            dicts, in the shape expected by the podman bindings'
+            ``containers.create()``.
+        """
+        environment: dict[str, str] = {}
+
+        environment_entries = config.get("environment", [])
+        for entry in environment_entries:
+            name, sep, value = entry.partition("=")
+            if name and not sep:
+                # Only a name: copy the variable from the host environment.
+                value = os.environ.get(name)
+                if value is None:
+                    dprint(Verbosity.TRACE,
+                           f"Environment variable {name} is not set; skipping")
+                    continue
+            elif not name:
+                dprint(Verbosity.TRACE,
+                       f"Invalid environment entry '{entry}'; skipping")
+                continue
+            environment[name] = value
+
+        return environment

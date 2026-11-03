@@ -7,6 +7,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 import importlib
 import string
 import sys
+import tarfile
 from pathlib import Path
 
 import podman.errors
@@ -35,12 +36,12 @@ class TestMergedContainerfile:
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
         assert merged.startswith("FROM ubuntu:26.04\n")
-        for addon in base.addons.addon_files():
+        for addon in base.addons.list_addon_files():
             assert addon.name in merged
         # The bundled opencode addon is enabled in the bundled
         # config.yaml and part of the package (as a jinja2 template).
         assert any(a.name == "addon.opencode.jinja2"
-                   for a in base.addons.addon_files())
+                   for a in base.addons.list_addon_files())
         assert "opencode" in merged
 
     def test_host_user_is_appended(self, tmp_path: Path):
@@ -82,7 +83,7 @@ class TestMergedContainerfile:
                          [config_dir, BUNDLED_DIR])
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
-        names = [a.name for a in base.addons.addon_files()]
+        names = [a.name for a in base.addons.list_addon_files()]
         assert "addon.mine" in names
         assert names.index("addon.mine") == len(names) - 1
         assert "RUN echo custom" in merged
@@ -100,7 +101,7 @@ class TestMergedContainerfile:
                          [config_dir, BUNDLED_DIR])
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
-        names = [a.name for a in base.addons.addon_files()]
+        names = [a.name for a in base.addons.list_addon_files()]
         assert "addon.mine" not in names
         assert "RUN echo custom" not in merged
 
@@ -121,7 +122,7 @@ class TestMergedContainerfile:
         assert enabled == {"mine"}
         assert base.addons.config_file \
             == (config_dir / "config.yaml").resolve()
-        names = [a.name for a in base.addons.addon_files()]
+        names = [a.name for a in base.addons.list_addon_files()]
         assert "addon.mine" in names
         assert "addon.opencode.jinja2" not in names
 
@@ -148,7 +149,7 @@ class TestMergedContainerfile:
 
         assert not base.addons.config_file
         assert base.addons.enabled_addons() is None
-        names = [a.name for a in base.addons.addon_files()]
+        names = [a.name for a in base.addons.list_addon_files()]
         assert "addon.mine" in names
 
     def test_no_duplicate_addons(self, tmp_path: Path):
@@ -158,7 +159,7 @@ class TestMergedContainerfile:
             / BUNDLE_DIR
 
         base = BaseImage(bundled, bundled / "config.yaml", [ADDON_DIR])
-        addons = base.addons.addon_files()
+        addons = base.addons.list_addon_files()
 
         assert len(addons) == len({a for a in addons})
         assert addons  # the bundled directory ships at least one addon
@@ -230,12 +231,25 @@ class FakeImages:
     def build(self, **kwargs):
         self.events.append(("build", kwargs.get("tag")))
         self.built = kwargs
-        dockerfile = Path(kwargs["dockerfile"])
-        if dockerfile.exists():
-            self.dockerfile_content = dockerfile.read_text(
-                encoding="utf-8")
+        self.dockerfile_content = None
+        if kwargs.get("custom_context") and "fileobj" in kwargs:
+            # The merged Containerfile lives inside the context tarball
+            # handed to the build as a custom context.
+            fileobj = kwargs["fileobj"]
+            try:
+                fileobj.seek(0)
+                with tarfile.open(fileobj=fileobj, mode="r:*") as tar:
+                    member = tar.extractfile(kwargs["dockerfile"])
+                    if member is not None:
+                        self.dockerfile_content = \
+                            member.read().decode("utf-8")
+            except (tarfile.TarError, KeyError, OSError):
+                self.dockerfile_content = None
         else:
-            self.dockerfile_content = None
+            dockerfile = Path(kwargs["dockerfile"])
+            if dockerfile.exists():
+                self.dockerfile_content = dockerfile.read_text(
+                    encoding="utf-8")
         return FakeImage(id="sha256:abc123"), []
 
 

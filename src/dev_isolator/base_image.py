@@ -31,7 +31,7 @@ from .podman_utils import get_image_id, remove_superseeded_image
 from .utils import dprint, Verbosity, get_verbosity
 from .constants import BUNDLE_DIR, TEMPLATES_DIR
 from .waitspinner import WaitSpinner
-from .addons_config import AddonsConfiguration
+from .config import AddonsConfiguration
 
 import os
 import pwd
@@ -283,7 +283,8 @@ class BaseImage:
         temp_dir_object = TemporaryDirectory(ignore_cleanup_errors=True)
         temp_dir = temp_dir_object.name
 
-        fd, temp_container_file, content_hash = self.write_container_file(temp_dir)
+        fd, temp_container_file, content_hash = (self.write_container_file(
+                                                 temp_dir))
         image_tag = f"dev-isolator-{self.name}:{self.tag}-{content_hash}"
         dprint(Verbosity.INFO, "Created temporary Containerfile "
                                f"{temp_container_file}")
@@ -371,7 +372,7 @@ class BaseImage:
         """
         text = str(base_content)
         text += "\n\n" + self.add_user_content()
-        for addon in self.addons.addon_files():
+        for addon in self.addons.list_addon_files():
             dprint(Verbosity.INFO, f"Appending addon: {addon.name}")
             text += f"\n\n# --- appended from {addon.name} ---\n"
             template = _jinja_environment().from_string(

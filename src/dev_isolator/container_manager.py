@@ -17,7 +17,7 @@ import sys
 import time
 import podman.errors
 from pathlib import Path
-from .addons_config import AddonsConfiguration
+from .config import AddonsConfiguration
 from .utils import dprint, Verbosity
 from .constants import (IMAGE_PREFIX,
                         CONTAINER_NAME_SUFFIX_LENGTH,
@@ -62,7 +62,7 @@ class ContainerDefintion:
     mounts declared directly in the active ``config.yaml`` and, in
     addition, those each enabled addon requests through a
     ``config.<addon_name>.yaml`` file (see
-    :class:`dev_isolator.addons_config.AddonsConfiguration`) are passed
+    :class:`dev_isolator.config.AddonsConfiguration`) are passed
     to the container when it is created (see
     :meth:`run_container`). Settings from ``config.yaml`` are applied
     first, addon settings override them and the ``/workspace`` mount of
@@ -104,7 +104,7 @@ class ContainerDefintion:
             self.tag = "default"
 
         self.bundled_dir = BUNDLE_DIR
-        self.addons = AddonsConfiguration(self.context_dir, self.bundled_dir,
+        self.config = AddonsConfiguration(self.context_dir, self.bundled_dir,
                                           self.config_file,
                                           self.addons_search_path)
 
@@ -179,13 +179,13 @@ class ContainerDefintion:
             volumes: dict[str, dict] = {}
 
             # Settings declared directly in the project's config.yaml.
-            config_environment, config_volumes = \
-                self.addons.config_run_settings()
+            config_environment = self.config.config_environment()
+            config_volumes = self.config.config_volumes()
             environment |= config_environment
             volumes |= config_volumes
 
             # Settings requested by the enabled addons.
-            addon_environment, addon_volumes = self.addons.addon_run_settings()
+            addon_environment, addon_volumes = self.config.addon_run_settings()
             environment |= addon_environment
             volumes |= addon_volumes
 

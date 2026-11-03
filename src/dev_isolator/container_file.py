@@ -6,12 +6,16 @@ on a base image built from the Containerfiles bundled with dev-isolator
 instruction of the project's Containerfile must reference a base image
 such as ``localhost/dev-isolator-ubuntu:26.04``.
 
-When the project image is built, the used Containerfile is written as a
-temporary file into the build context, containing the project
-Containerfile plus the trailing workdir block (``USER`` of the host
-user and ``WORKDIR /workspace``), and passed to ``podman build`` with
-the project's :const:`image_name` tag. A previous image replaced by
-the build is removed afterwards (see
+When the project image is built, the merged Containerfile (the project
+Containerfile plus the trailing workdir block: ``USER`` of the host user
+and ``WORKDIR /workspace``) is passed to ``podman build`` with the
+project's :const:`image_name` tag as a custom build context. The build
+context - the directory holding the project's ``.devisolator`` folder -
+is sent to the podman service as a tarball that skips the directories a
+dev-isolator image never needs (see
+:func:`dev_isolator.build_context.create_context_tar`), so building a
+large repository stays fast. A previous image replaced by the build is
+removed afterwards (see
 :func:`dev_isolator.podman_utils.remove_superseeded_image`).
 
 Copyright (C) 2026 Martin Köhler
@@ -23,19 +27,18 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 import os
-import shutil
 from pathlib import Path
 from .base_image import BaseImage, host_username
 from .podman_utils import get_image_id, remove_superseeded_image
 from .utils import dprint, Verbosity, get_verbosity
 from .waitspinner import WaitSpinner
+from .constants import BUNDLE_DIR
 from tempfile import mkstemp, TemporaryDirectory
 from tree_sitter import Language, Parser
 import tree_sitter_containerfile
 import podman.errors
 import podman
 import json
-from .constants import BUNDLE_DIR
 
 
 def replace_from_images(content: str, new_image: str) -> str:
@@ -202,21 +205,20 @@ class ContainerFile:
             raise
         return fd, temp_container_file
 
-    def _safe_container_file(self, temp_file):
+    def _safe_container_file(self, content):
         """Keep a generated Containerfile for debugging a failure.
 
-        Copies the temporary file ``temp_file`` to the current
-        working directory as ``Containerfile-fail-<random>`` and
-        reports the kept name in an error message. Used when the
-        image build fails and the build was requested with
-        ``keep_container_file=True`` (see
+        Writes ``content`` to the current working directory as
+        ``Containerfile-fail-<random>`` and reports the kept name in an
+        error message. Used when the image build fails and the build was
+        requested with ``keep_container_file=True`` (see
         :meth:`dev_isolator.container_manager.ContainerDefintion.
         build_container`).
         """
         fd, temp_name = mkstemp(dir=os.getcwd(),
                                 prefix="Containerfile-fail-")
         fd.close()
-        shutil.copyfile(temp_file, temp_name)
+        Path(temp_name).write_text(content, encoding="utf-8")
         dprint(Verbosity.ERROR, "Kept generated Containerfile as "
                                 f"{temp_name}")
 
@@ -266,8 +268,6 @@ class ContainerFile:
                         path=str(build_image_dir),
                         dockerfile=str(temp_container_file),
                         tag=tag,
-                        rm=True,
-                        forcerm=True,
                         pull=True,
                         nocache=nocache
                         )
