@@ -148,7 +148,6 @@ or references a base image not bundled with dev-isolator (see
 
 | Option | Description |
 |---|---|
-| `--nocache`, `-n` | Pass `--nocache` to `podman build`, i.e. ignore the build cache. |
 | `--keep-container-file`, `-k` | On a build error, keep the generated (merged) Containerfile in the current directory as `Containerfile-fail-*` for inspection. |
 
 ### `shell`
@@ -161,8 +160,8 @@ dev-isolator --shell zsh  # start zsh instead of bash
 
 Opens an interactive shell inside the container:
 
-1. The image is built first (as with `build`, without `--nocache`); the build
-   cache keeps rebuilding cheap.
+1. The image is built first (as with `build`); the build cache keeps
+   rebuilding cheap.
 2. A container named
    `dev-isolator-<slug_of_the_project_path>--<tag>-<8 random characters>` is
    created and started. The random suffix lets several containers of the same
@@ -357,7 +356,8 @@ directory of your project:
 
 - `Containerfile`: the base image definition (see [Base images](#base-images)).
 - `config.yaml`: the enabled addons and container settings. Besides `addons`, it
-  can also declare `environment` variables and additional `volumes`:
+  can also declare `environment` variables, additional `volumes` and build
+  options:
 
   ```yaml
   addons:
@@ -368,7 +368,21 @@ directory of your project:
     - PYTHONDONTWRITEBYTECODE=1
   volumes:
     - /tmp:/host_tmp
+  build:
+    # Use the project directory as the build context (needed for
+    # ADD/COPY instructions); by default an empty temporary directory
+    # holding only the Containerfile is used.
+    local_context: false
+    # Ignore the build cache; by default the cache is used.
+    nocache: false
   ```
+
+  The `build` section controls the image build: `local_context` selects the
+  build context — by default an empty temporary directory holding only the
+  merged Containerfile (the project sources stay on the host and are mounted
+  at `/workspace` at run time), but when set the project's own directory is
+  used instead so `ADD`/`COPY` instructions can read the sources; `nocache`
+  ignores the build cache. Both default to `false`.
 
 - `addon.<name>.jinja2`: a jinja2 template with the Containerfile instructions
   appended for the addon `<name>`. It is rendered into the *base image's*
