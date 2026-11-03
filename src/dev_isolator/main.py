@@ -52,6 +52,7 @@ from .constants import (BUNDLE_DIR, CONFIG_FILE_NAME, ADDON_DIR,
                         DEV_ISOLATOR_DIR, DEFAULT_BASE)
 from .base_image import BaseImage
 from pathlib import Path
+from .config import Configuration
 
 DEFAULT_SHELL = "bash"
 
@@ -583,6 +584,9 @@ def main() -> int:
     Any unhandled exception is reported as an error message and turned
     into the exit code 255.
     """
+    main_intern()
+    return -1
+
     try:
         ret_code = main_intern()
     except Exception as e:
@@ -615,18 +619,19 @@ def main_intern() -> int:
     if args.config == "default":
         args.config = None
 
+    context_dir, container_file, config_file, addon_search_path = get_path(
+        args.config)
+
+    config = Configuration(config_file, addon_search_path)
+
     # Commands that do not require an initialized ContainerDefintion object
     if args.command == "init":
         return init_project(args)
     if args.command == "list-base":
         return list_base()
 
-
-    context_dir, container_file, config_file, addon_search_path = get_path(
-        args.config)
-
-    definition = ContainerDefintion(context_dir, container_file, config_file,
-                                    addon_search_path, args.config)
+    definition = ContainerDefintion(context_dir, container_file, config,
+                                    args.config)
 
     if args.command == "clean":
         return clean(definition, args)

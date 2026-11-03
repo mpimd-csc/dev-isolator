@@ -42,7 +42,7 @@ import jinja2
 import hashlib
 from functools import lru_cache
 from tempfile import mkstemp, TemporaryDirectory
-
+from .config import Configuration
 
 def render_template(template: jinja2.Template) -> str:
     """Render a Containerfile jinja2 template with the host
@@ -117,25 +117,18 @@ class BaseImage:
         ``ubuntu:26.04`` to ``data/base/Containerfile.ubuntu-26.04``.
     """
 
-    def __init__(self, context_dir=None, config_file=None,
-                 addon_search_path=None):
+    def __init__(self, context_dir=None, config: Configuration = None):
         """Set up the base image for a build context.
 
         :param context_dir: Path to the project's build context
             directory; the temporary merged base Containerfile is
             written here during the build.
-        :param config_file: Path to the project's ``config.yaml``,
+        :param config: Path to the project's ``config.yaml``,
             determining the enabled addons. May be ``None``, in which
             case (as with a missing file) every ``addon.*`` file is
             used.
-        :param addon_search_path: List of directories searched for
-            ``addon.*`` files that are appended to the base image's
-            Containerfile. May be ``None`` or empty, in which case
-            (as with a missing ``config_file``) no addons are found.
         """
-        self.config_file = Path(config_file) if config_file else None
-        self.addons_search_path = (addon_search_path if addon_search_path
-                                   else None)
+        self.config = config
         self.bundled_dir = BUNDLE_DIR
 
         self.base_image_dir = self.bundled_dir / "base"
@@ -147,12 +140,6 @@ class BaseImage:
             if value is not None:
                 dprint(Verbosity.DEBUG, f"Found base image {value} in {path}")
                 self.base_images[value] = path
-
-        self.addons = Configuration(
-            context_dir,
-            self.bundled_dir,
-            self.config_file,
-            addon_search_path if addon_search_path else [])
 
     def list_base_images(self):
         """Return the sorted list of bundled base image names.
@@ -372,7 +359,7 @@ class BaseImage:
         """
         text = str(base_content)
         text += "\n\n" + self.add_user_content()
-        for addon in self.addons.list_addon_files():
+        for addon in self.config.list_addon_files():
             dprint(Verbosity.INFO, f"Appending addon: {addon.name}")
             text += f"\n\n# --- appended from {addon.name} ---\n"
             template = _jinja_environment().from_string(

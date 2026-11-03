@@ -137,7 +137,6 @@ def parse_volume_spec(spec: str) -> tuple[str, str, str]:
     return host, container_path, mode
 
 
-
 class Configuration:
     """Locate and read the configuration files controlling the addons.
 
@@ -161,15 +160,10 @@ class Configuration:
     file only once.
     """
 
-    def __init__(self, context_dir, bundled_dir, config_file,
+    def __init__(self, config_file,
                  addon_search_paths):
         """Set up the configuration for a build context.
 
-        :param context_dir: Path to the build context directory.
-            When ``None``, the bundled directory is used.
-        :param bundled_dir: Optional path to the directory bundled
-            with dev-isolator; only used for testing. When ``None``,
-            the package's bundled ``data`` directory is used.
         :param config_file: Path to the active ``config.yaml`` file
             determining the enabled addons; may be ``None``, in
             which case every ``addon.*`` file is used.
@@ -177,8 +171,6 @@ class Configuration:
             ``addon.*`` files and ``config.<addon_name>.yaml`` files,
             in precedence order (the first existing file wins).
         """
-        self.context_dir = context_dir
-        self.bundled_dir = bundled_dir
         self.config_file = config_file
         self.addon_search_paths = addon_search_paths
         self._enabled_addons = _UNSET

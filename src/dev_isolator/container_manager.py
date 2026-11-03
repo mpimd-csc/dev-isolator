@@ -69,8 +69,7 @@ class ContainerDefintion:
     the current directory always takes precedence.
     """
 
-    def __init__(self, context_dir, container_file, config_file,
-                 addon_search_path, tag=None):
+    def __init__(self, context_dir, container_file, config, tag=None):
         """Set up the container definition.
 
         :param container_file: Optional path to a custom Containerfile.
@@ -79,11 +78,9 @@ class ContainerDefintion:
         :param context_dir: Optional path to the build context
             directory. When ``None``, the package's bundled
             ``data`` directory is used.
-        :param config_file: Path to the project's ``config.yaml``
+        :param config: Path to the project's ``config.yaml``
             determining the enabled addons. May be ``None``, in
             which case every ``addon.*`` file is used.
-        :param addon_search_path: List of directories searched for
-            ``addon.*`` files and ``config.<addon_name>.yaml`` files.
         :param tag: Tag variant of the image to build, so one project
             can have several configurations in parallel. Defaults to
             ``"default"``.
@@ -96,28 +93,21 @@ class ContainerDefintion:
         """
         self.context_dir = Path(context_dir)
         self.container_file = Path(container_file)
-        self.config_file = Path(config_file) if config_file else None
-        self.addons_search_path = addon_search_path
+        self.config = config
         if tag:
             self.tag = tag
         else:
             self.tag = "default"
 
         self.bundled_dir = BUNDLE_DIR
-        self.config = Configuration(self.context_dir, self.bundled_dir,
-                                          self.config_file,
-                                          self.addons_search_path)
 
         dprint(Verbosity.DEBUG, f"Containerfile: {self.container_file}")
         dprint(Verbosity.DEBUG, f"Context dir:   {self.context_dir}")
-        dprint(Verbosity.DEBUG, f"Config file:   {self.config_file}")
         dprint(Verbosity.DEBUG, f"Bundle dir:    {self.bundled_dir}")
-        dprint(Verbosity.DEBUG, f"Addon search:  {self.addons_search_path}")
 
         self.container_file_obj = ContainerFile(self.context_dir,
                                                 self.container_file,
-                                                self.config_file,
-                                                self.addons_search_path,
+                                                self.config,
                                                 self.image_name())
 
     def build_container(self, nocache=False, keep_container_file=False):

@@ -106,8 +106,7 @@ class ContainerFile:
         is based on, built on initialization.
     """
 
-    def __init__(self, context_dir, container_file, config_file,
-                 addon_search_path, image_name):
+    def __init__(self, context_dir, container_file, config, image_name):
         """Set up the container file and build its base image.
 
         :param context_dir: Path to the build context directory; the
@@ -115,11 +114,8 @@ class ContainerFile:
             build.
         :param container_file: Path to the project's ``Containerfile``
             inside the build context.
-        :param config_file: Path to the project's ``config.yaml``,
+        :param config: Path to the project's ``config.yaml``,
             determining the enabled addons of the base image build.
-        :param addon_search_path: List of directories searched for
-            ``addon.*`` files that are appended to the base image's
-            Containerfile.
         :param image_name: Tag used for the built project image (see
             :meth:`dev_isolator.container_manager.ContainerDefintion.
             image_name`).
@@ -132,9 +128,8 @@ class ContainerFile:
         """
         self.context_dir = Path(context_dir)
         self.container_file = Path(container_file)
-        self.config_file = Path(config_file) if config_file else None
-        self.addons_search_path = addon_search_path
         self.image_name = image_name
+        self.config = config
 
         if not self.container_file.is_file():
             raise FileNotFoundError(f"Containterfile {self.container_file}"
@@ -154,8 +149,7 @@ class ContainerFile:
                                f"{base_image_name}")
         self.from_image_name = f"{base_image_name}{base_image_tag}"
 
-        self.base_image = BaseImage(self.context_dir, self.config_file,
-                                    self.addons_search_path)
+        self.base_image = BaseImage(self.context_dir, self.config)
 
     def _write_container_file(self, directory):
         """Write the used Containerfile for the image build.
