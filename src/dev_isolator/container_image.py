@@ -216,7 +216,7 @@ class ContainerImage:
         dprint(Verbosity.ERROR, "Kept generated Containerfile as "
                                 f"{temp_name}")
 
-    def build(self, nocache=False, keep_container_file=False):
+    def build(self, keep_container_file=False):
         """Build the image defined by this container file.
 
         The used Containerfile is written by
@@ -229,7 +229,6 @@ class ContainerImage:
         its image id changed - so no old image is left as a dangling
         artifact in podman.
 
-        :param nocache: Run ``podman build`` with ``--nocache``.
         :param keep_container_file: Keep the generated Containerfile
             in the current directory when the build fails (see
             :meth:`_safe_container_file`).
@@ -237,25 +236,25 @@ class ContainerImage:
         :raises RuntimeError: if the podman build fails.
         """
         tag = self.image_name
-        _, self.base_image_name, _ = self.base_image.build(self.from_image_name)
+        _, self.base_image_name, _ = (self.base_image.build(
+                                      self.from_image_name))
 
-        if self.context_dir == BUNDLE_DIR:
-            dprint(Verbosity.INFO, "Context dir is the data directory, using "
-                                   "a temporary one.")
+        if self.config.build_get_local_context():
+            temp_dir_object = None
+            build_image_dir = self.context_dir
+        else:
             temp_dir_object = TemporaryDirectory(ignore_cleanup_errors=True)
             build_image_dir = temp_dir_object.name
-        else:
-            build_image_dir = self.context_dir
-            temp_dir_object = None
 
         fd, temp_container_file = self._write_container_file(build_image_dir)
+
+        dprint(Verbosity.INFO, f"Using build context {build_image_dir}")
+        dprint(Verbosity.INFO, "Created temporary Containerfile "
+                               f"{temp_container_file}")
 
         try:
             with podman.PodmanClient() as client:
                 previous_id = get_image_id(client, tag)
-                dprint(Verbosity.INFO, "Created temporary Containerfile "
-                       f"{temp_container_file}")
-
                 dprint(Verbosity.INFO, "Building image ...")
                 with WaitSpinner(f"Building image {tag}"):
                     image, build_logs = client.images.build(
@@ -263,8 +262,8 @@ class ContainerImage:
                         dockerfile=str(temp_container_file),
                         tag=tag,
                         pull=True,
-                        nocache=nocache
-                        )
+                        nocache=self.config.build_get_nocache()
+                    )
                 remove_superseeded_image(client, previous_id, image.id, tag)
         except podman.errors.BuildError as e:
             if keep_container_file:

@@ -289,6 +289,7 @@ class BaseImage:
                         rm=True,
                         forcerm=True,
                         pull=True,
+                        nocache=self.config.build_get_nocache()
                         )
                 remove_superseeded_image(client, previous_id, image.id,
                                          image_tag)

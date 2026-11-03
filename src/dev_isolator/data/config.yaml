@@ -1,6 +1,16 @@
 # This is the default config for dev-isolator
 # Users can overwrite it in each project.
 #
+build:
+  # Use the local directory as context. If the directory is large, this takes a while building the image
+  # If set to false, a empty temporary directory is used only containing the Containerfile.
+  # If your Containerfile uses "ADD" or "COPY" instructions, set this to true
+  local_context: false
+
+  # Pass the nocache flag to the build process. If set to true, the build process does not cache anything.
+  nocache: false
+
+# List of addons to be enabled in the abse image
 addons:
   - opencode
   - claude

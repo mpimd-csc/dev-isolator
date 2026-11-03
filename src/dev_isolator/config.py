@@ -378,6 +378,10 @@ class Configuration:
 
         return bool(build.get("local_context", False))
 
+    def build_get_nocache(self):
+        build = self.yaml_data.get("build", {})
+        return bool(build.get("nocache", False))
+
     #
     # Internal Routines
     #

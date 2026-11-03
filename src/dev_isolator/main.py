@@ -83,7 +83,6 @@ def create_parser() -> argparse.ArgumentParser:
     epilog = """\
 examples:
   dev-isolator build              build the image of the current project
-  dev-isolator build --nocache    same, but without using the build cache
   dev-isolator --shell zsh        open a zsh in the container
   dev-isolator                    open an interactive shell in the container
   dev-isolator run make test      run "make test" inside the container
@@ -164,13 +163,6 @@ The dev-isolator command can also be abbreviated by `di`
         description="Build the image from the project settings or the "
                     "default one."
         )
-    build_parser.add_argument(
-            "--nocache",
-            "-n",
-            dest="nocache",
-            action="store_true",
-            help="Pass the --nocache option to podman build."
-            )
     build_parser.add_argument(
             "-k",
             "--keep-container-file",
@@ -338,14 +330,12 @@ def build(definition, args) -> int:
     """Handle the ``build`` sub command.
 
     Look up the container definition of the current project and build
-    its image.  Pass ``--nocache`` to podman when ``args.nocache`` is
-    set and, when ``args.keep_container_file`` is set, keep the
+    its image. Wwhen ``args.keep_container_file`` is set, keep the
     generated Containerfile in the current directory on a build error.
     Returns 0 on success, or 1 on error.
     """
     try:
-        definition.build_container(nocache=args.nocache,
-                                   keep_container_file=args.keep_container_file
+        definition.build_container(keep_container_file=args.keep_container_file
                                    )
     except Exception as e:
         print(f"An error occured: {e}", file=sys.stderr)

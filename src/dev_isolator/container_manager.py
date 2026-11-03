@@ -106,11 +106,11 @@ class ContainerDefintion:
         dprint(Verbosity.DEBUG, f"Bundle dir:    {self.bundled_dir}")
 
         self.container_file_obj = ContainerImage(self.context_dir,
-                                                self.container_file,
-                                                self.config,
-                                                self.image_name())
+                                                 self.container_file,
+                                                 self.config,
+                                                 self.image_name())
 
-    def build_container(self, nocache=False, keep_container_file=False):
+    def build_container(self, keep_container_file=False):
         """Build the image defined by this container definition.
 
         The merged Containerfile is written as a temporary file
@@ -128,8 +128,7 @@ class ContainerDefintion:
             superseded image cannot be removed.
         """
 
-        image = self.container_file_obj.build(nocache=nocache,
-                                              keep_container_file=keep_container_file)
+        image = self.container_file_obj.build(keep_container_file=keep_container_file)
         return image
 
     def run_container(self, interactive_shell: str = "bash",
@@ -160,7 +159,7 @@ class ContainerDefintion:
         implemented).
         """
 
-        self.build_container(nocache=False)
+        self.build_container()
 
         with podman.PodmanClient() as client:
             image = client.images.get(self.image_name())
