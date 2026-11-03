@@ -14,6 +14,7 @@ import podman.errors
 import pytest
 import dev_isolator.container_manager as container_manager
 from dev_isolator.base_image import BaseImage, host_username
+from dev_isolator.config import Configuration
 from dev_isolator.constants import (
     BUNDLE_DIR, ADDON_DIR, CONTAINER_NAME_SUFFIX_LENGTH)
 from dev_isolator.container_manager import ContainerDefintion
@@ -25,23 +26,43 @@ from dev_isolator.utils import Verbosity
 BUNDLED_DIR = Path(container_manager.__file__).resolve().parent / BUNDLE_DIR
 
 
+def make_configuration(config_file, addon_search_paths):
+    """Return a :class:`dev_isolator.config.Configuration` for the given
+    active ``config.yaml`` and addon search paths."""
+    return Configuration(config_file, addon_search_paths)
+
+
+def empty_configuration(tmp_path: Path, addon_search_paths):
+    """Return a configuration that enables no addons.
+
+    The current ``Configuration`` requires an existing ``config.yaml``
+    (it reads it on construction); an empty file enables no addons, so
+    this stands in for the old "no config.yaml" case in the tests that
+    only need the host user block or a plain build.
+    """
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("")
+    return Configuration(config_file, addon_search_paths)
+
+
 class TestMergedContainerfile:
     """Test the merged Containerfile of the base image"""
 
     def test_bundled_addons_are_appended(self, tmp_path: Path):
-        """Addon.* files enabled in the bundled addons.yaml are
+        """Addon.* files enabled in the bundled config.yaml are
         appended to the base image's Containerfile."""
-        base = BaseImage(tmp_path, BUNDLED_DIR / "config.yaml",
-                         [ADDON_DIR])
+        config = make_configuration(BUNDLED_DIR / "config.yaml",
+                                    [ADDON_DIR])
+        base = BaseImage(tmp_path, config)
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
         assert merged.startswith("FROM ubuntu:26.04\n")
-        for addon in base.addons.list_addon_files():
+        for addon in base.config.list_addon_files():
             assert addon.name in merged
         # The bundled opencode addon is enabled in the bundled
         # config.yaml and part of the package (as a jinja2 template).
         assert any(a.name == "addon.opencode.jinja2"
-                   for a in base.addons.list_addon_files())
+                   for a in base.config.list_addon_files())
         assert "opencode" in merged
 
     def test_host_user_is_appended(self, tmp_path: Path):
@@ -50,7 +71,7 @@ class TestMergedContainerfile:
         default user."""
         import os
 
-        base = BaseImage(tmp_path, None, [])
+        base = BaseImage(tmp_path, empty_configuration(tmp_path, []))
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
         uid = os.getuid()
@@ -79,11 +100,12 @@ class TestMergedContainerfile:
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
 
-        base = BaseImage(tmp_path, config_dir / "config.yaml",
-                         [config_dir, BUNDLED_DIR])
+        config = make_configuration(config_dir / "config.yaml",
+                                    [config_dir, BUNDLED_DIR])
+        base = BaseImage(tmp_path, config)
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
-        names = [a.name for a in base.addons.list_addon_files()]
+        names = [a.name for a in base.config.list_addon_files()]
         assert "addon.mine" in names
         assert names.index("addon.mine") == len(names) - 1
         assert "RUN echo custom" in merged
@@ -97,11 +119,12 @@ class TestMergedContainerfile:
 
         # Without a project config.yaml the bundled one is active,
         # and it does not enable the "mine" addon.
-        base = BaseImage(tmp_path, BUNDLED_DIR / "config.yaml",
-                         [config_dir, BUNDLED_DIR])
+        config = make_configuration(BUNDLED_DIR / "config.yaml",
+                                    [config_dir, BUNDLED_DIR])
+        base = BaseImage(tmp_path, config)
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
-        names = [a.name for a in base.addons.list_addon_files()]
+        names = [a.name for a in base.config.list_addon_files()]
         assert "addon.mine" not in names
         assert "RUN echo custom" not in merged
 
@@ -113,16 +136,17 @@ class TestMergedContainerfile:
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
 
-        base = BaseImage(tmp_path, config_dir / "config.yaml",
-                         [config_dir, BUNDLED_DIR])
-        enabled = base.addons.enabled_addons()
+        config = make_configuration(config_dir / "config.yaml",
+                                    [config_dir, BUNDLED_DIR])
+        base = BaseImage(tmp_path, config)
+        enabled = base.config.enabled_addons()
 
         # Only the project config is honored; the bundled list is
         # ignored entirely.
         assert enabled == {"mine"}
-        assert base.addons.config_file \
+        assert base.config.config_file \
             == (config_dir / "config.yaml").resolve()
-        names = [a.name for a in base.addons.list_addon_files()]
+        names = [a.name for a in base.config.list_addon_files()]
         assert "addon.mine" in names
         assert "addon.opencode.jinja2" not in names
 
@@ -132,25 +156,32 @@ class TestMergedContainerfile:
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
 
-        base = BaseImage(tmp_path, BUNDLED_DIR / "config.yaml",
-                         [config_dir, BUNDLED_DIR])
+        config = make_configuration(BUNDLED_DIR / "config.yaml",
+                                    [config_dir, BUNDLED_DIR])
+        base = BaseImage(tmp_path, config)
 
-        assert base.addons.config_file \
+        assert base.config.config_file \
             == (BUNDLED_DIR / "config.yaml").resolve()
-        assert base.addons.enabled_addons() == {"opencode", "claude"}
+        assert base.config.enabled_addons() == {"opencode", "claude"}
 
-    def test_no_config_yaml_enables_everything(self, tmp_path: Path):
-        """Without any config.yaml file every addon.* file is used."""
+    def test_config_yaml_without_addons_key_enables_nothing(
+            self, tmp_path: Path):
+        """A config.yaml without an 'addons' key enables no addon, so
+        no addon.* file is appended to the Containerfile."""
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
+        (config_dir / "config.yaml").write_text("")
 
-        base = BaseImage(tmp_path, None, [config_dir, BUNDLED_DIR])
+        config = make_configuration(config_dir / "config.yaml",
+                                    [config_dir, BUNDLED_DIR])
+        base = BaseImage(tmp_path, config)
 
-        assert not base.addons.config_file
-        assert base.addons.enabled_addons() is None
-        names = [a.name for a in base.addons.list_addon_files()]
-        assert "addon.mine" in names
+        assert base.config.config_file \
+            == (config_dir / "config.yaml").resolve()
+        assert base.config.enabled_addons() == set()
+        names = [a.name for a in base.config.list_addon_files()]
+        assert "addon.mine" not in names
 
     def test_no_duplicate_addons(self, tmp_path: Path):
         """When the build context is the bundled directory
@@ -158,8 +189,9 @@ class TestMergedContainerfile:
         bundled = Path(container_manager.__file__).resolve().parent \
             / BUNDLE_DIR
 
-        base = BaseImage(bundled, bundled / "config.yaml", [ADDON_DIR])
-        addons = base.addons.list_addon_files()
+        config = make_configuration(bundled / "config.yaml", [ADDON_DIR])
+        base = BaseImage(bundled, config)
+        addons = base.config.list_addon_files()
 
         assert len(addons) == len({a for a in addons})
         assert addons  # the bundled directory ships at least one addon
@@ -177,8 +209,9 @@ class TestMergedContainerfile:
         (config_dir / "config.yaml").write_text(
             "addons:\n  - rendered\n")
 
-        base = BaseImage(tmp_path, config_dir / "config.yaml",
-                         [config_dir])
+        config = make_configuration(config_dir / "config.yaml",
+                                    [config_dir])
+        base = BaseImage(tmp_path, config)
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
         username = host_username()
@@ -289,9 +322,9 @@ class TestBuildTraceOutput:
         # the base image name in the project Containerfile).
         monkeypatch.setattr(
             BaseImage, "build", lambda self, image: (None, image, None))
-        return ContainerDefintion(tmp_path, container_file,
-                                  config_dir / "config.yaml",
-                                  [config_dir])
+        config = make_configuration(config_dir / "config.yaml",
+                                    [config_dir])
+        return ContainerDefintion(tmp_path, container_file, config)
 
     @pytest.fixture
     def patched_images(self, monkeypatch):
@@ -411,8 +444,9 @@ class TestBaseImageBuild:
         config_dir.mkdir()
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
-        return BaseImage(tmp_path, config_dir / "config.yaml",
-                         [config_dir])
+        config = make_configuration(config_dir / "config.yaml",
+                                    [config_dir])
+        return BaseImage(tmp_path, config)
 
     def test_build_appends_addons_to_base_containerfile(
             self, base, monkeypatch):
@@ -715,14 +749,16 @@ class TestRunContainerCommand:
         container_file = config_dir / "Containerfile"
         container_file.write_text(
             "FROM localhost/dev-isolator-ubuntu:26.04\n")
-        # The base image build is not part of these tests; it is stubbed
-        # out to return the (image, image_tag, content_hash) tuple the
-        # real build produces, of which only the image tag is used (as
-        # the base image name in the project Containerfile).
+        # The image build is not part of these tests; only the exec
+        # behavior of run_container is exercised, so build_container is
+        # stubbed out.
         monkeypatch.setattr(
-            BaseImage, "build", lambda self, image: (None, image, None))
-        return ContainerDefintion(tmp_path, container_file, None,
-                                  [config_dir])
+            ContainerDefintion, "build_container",
+            lambda self, keep_container_file=False: None)
+        config_file = config_dir / "config.yaml"
+        config_file.write_text("")
+        config = make_configuration(config_file, [config_dir])
+        return ContainerDefintion(tmp_path, container_file, config)
 
     @pytest.fixture
     def exec_cmd(self, monkeypatch):
@@ -784,11 +820,15 @@ class TestRunContainerCommand:
 
 
 class TestMainRunDispatch:
-    """Test that main() dispatches the ``run`` subcommand correctly.
+    """Test that main_intern() dispatches the ``run`` subcommand.
 
     ``run`` without a command must fall back to ``shell``; with a
     command it must pass the command and its arguments through to
     ``in_container_command``.
+
+    ``main_intern`` is exercised directly: it holds the dispatch logic
+    and returns the handler's exit code, unlike the ``main`` wrapper,
+    which currently discards it and always returns -1.
     """
 
     def test_run_without_command_dispatches_to_shell(self, monkeypatch):
@@ -807,7 +847,7 @@ class TestMainRunDispatch:
                             lambda *args, **kwargs: object())
         monkeypatch.setattr(sys, "argv", ["di", "run"])
 
-        assert di_main.main() == 0
+        assert di_main.main_intern() == 0
         # run without a command falls back to the shell handler, which
         # starts the default shell.
         assert called == {"shell": DEFAULT_SHELL}
@@ -829,7 +869,7 @@ class TestMainRunDispatch:
                             lambda *args, **kwargs: object())
         monkeypatch.setattr(sys, "argv", ["di", "run", "make", "test"])
 
-        assert di_main.main() == 0
+        assert di_main.main_intern() == 0
         assert called["call"] == ("make", ["test"])
 
 
@@ -844,14 +884,15 @@ class TestContainerName:
         container_file = config_dir / "Containerfile"
         container_file.write_text(
             "FROM localhost/dev-isolator-ubuntu:26.04\n")
-        # The base image build is not part of these tests; it is stubbed
-        # out to return the (image, image_tag, content_hash) tuple the
-        # real build produces, of which only the image tag is used (as
-        # the base image name in the project Containerfile).
+        # The image build is not part of these tests; build_container is
+        # stubbed so only the container naming is exercised.
         monkeypatch.setattr(
-            BaseImage, "build", lambda self, image: (None, image, None))
-        return ContainerDefintion(tmp_path, container_file, None,
-                                  [config_dir])
+            ContainerDefintion, "build_container",
+            lambda self, keep_container_file=False: None)
+        config_file = config_dir / "config.yaml"
+        config_file.write_text("")
+        config = make_configuration(config_file, [config_dir])
+        return ContainerDefintion(tmp_path, container_file, config)
 
     def test_prefix_is_image_name_without_colon(self, project):
         prefix = project.container_name_prefix()
@@ -965,14 +1006,12 @@ class TestCleanRemovesMatchingContainers:
         container_file = config_dir / "Containerfile"
         container_file.write_text(
             "FROM localhost/dev-isolator-ubuntu:26.04\n")
-        # The base image build is not part of these tests; it is stubbed
-        # out to return the (image, image_tag, content_hash) tuple the
-        # real build produces, of which only the image tag is used (as
-        # the base image name in the project Containerfile).
-        monkeypatch.setattr(
-            BaseImage, "build", lambda self, image: (None, image, None))
-        return ContainerDefintion(tmp_path, container_file, None,
-                                  [config_dir])
+        # The image build is not part of these tests; only the container
+        # cleanup is exercised.
+        config_file = config_dir / "config.yaml"
+        config_file.write_text("")
+        config = make_configuration(config_file, [config_dir])
+        return ContainerDefintion(tmp_path, container_file, config)
 
     @pytest.fixture
     def containers(self):
