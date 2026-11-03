@@ -1,4 +1,4 @@
-"""Write and build the project image's Containerfile (ContainerFile).
+"""Write and build the project image's Containerfile (ContainerImage).
 
 The project's ``Containerfile`` inside the build context must be based
 on a base image built from the Containerfiles bundled with dev-isolator
@@ -45,7 +45,7 @@ def replace_from_images(content: str, new_image: str) -> str:
     """Replace the image of every ``FROM`` instruction in a Containerfile.
 
     Parses ``content`` with the tree-sitter Containerfile grammar (the
-    same grammar used by :meth:`ContainerFile.get_from_image`), finds
+    same grammar used by :meth:`ContainerImage.get_from_image`), finds
     every ``FROM`` instruction's image spec and replaces it with
     ``new_image``; tags, digests and ``AS <alias>`` parts of the
     instruction are preserved (only the image itself is replaced, so
@@ -91,10 +91,10 @@ def replace_from_images(content: str, new_image: str) -> str:
     return source.decode("utf-8")
 
 
-class ContainerFile:
+class ContainerImage:
     """Write and build the project image's Containerfile.
 
-    A ContainerFile is created for a build context together with the
+    A ContainerImage is created for a build context together with the
     paths of the project's own ``Containerfile``, the project's
     ``config.yaml`` and the addon search paths. Before anything else,
     the ``FROM`` instruction of the project Containerfile identifies

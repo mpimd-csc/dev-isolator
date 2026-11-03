@@ -22,7 +22,7 @@ from .utils import dprint, Verbosity
 from .constants import (IMAGE_PREFIX,
                         CONTAINER_NAME_SUFFIX_LENGTH,
                         BUNDLE_DIR)
-from .container_file import ContainerFile
+from .container_image import ContainerImage
 
 
 def slugify_path(path: str | os.PathLike) -> str:
@@ -89,7 +89,7 @@ class ContainerDefintion:
             base Containerfile.
         :raises RuntimeError: if the Containerfile's ``FROM``
             instruction does not identify a dev-isolator base image or
-            a podman build fails (see :class:`ContainerFile`).
+            a podman build fails (see :class:`ContainerImage`).
         """
         self.context_dir = Path(context_dir)
         self.container_file = Path(container_file)
@@ -105,7 +105,7 @@ class ContainerDefintion:
         dprint(Verbosity.DEBUG, f"Context dir:   {self.context_dir}")
         dprint(Verbosity.DEBUG, f"Bundle dir:    {self.bundled_dir}")
 
-        self.container_file_obj = ContainerFile(self.context_dir,
+        self.container_file_obj = ContainerImage(self.context_dir,
                                                 self.container_file,
                                                 self.config,
                                                 self.image_name())

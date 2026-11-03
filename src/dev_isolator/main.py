@@ -46,7 +46,7 @@ import os
 
 from textwrap import dedent
 from .container_manager import ContainerDefintion
-from .container_file import replace_from_images
+from .container_image import replace_from_images
 from .utils import set_verbosity, search_path, Verbosity, dprint
 from .constants import (BUNDLE_DIR, CONFIG_FILE_NAME, ADDON_DIR,
                         DEV_ISOLATOR_DIR, DEFAULT_BASE)

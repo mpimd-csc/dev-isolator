@@ -298,7 +298,7 @@ class TestBuildTraceOutput:
         """Patch PodmanClient with a fake using ``FakeImages``."""
         images = FakeImages()
         monkeypatch.setattr(
-            "dev_isolator.container_file.podman.PodmanClient",
+            "dev_isolator.container_image.podman.PodmanClient",
             lambda: FakeClient(images))
         return images
 

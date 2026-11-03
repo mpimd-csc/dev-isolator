@@ -15,7 +15,7 @@ block (a user with the invoking host user's UID, GID and username,
 template ``add_user.containerfile.jinja2``).
 
 Project image builds (see
-:class:`dev_isolator.container_file.ContainerFile`) then base their
+:class:`dev_isolator.container_image.ContainerImage`) then base their
 ``FROM`` instruction on this base image.
 
 Copyright (C) 2026 Martin Köhler
