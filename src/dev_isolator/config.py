@@ -409,8 +409,11 @@ class Configuration:
             host = os.path.expanduser(os.path.expandvars(host))
             container_path = os.path.expanduser(
                     os.path.expandvars(container_path))
-            volumes[host] = {"bind": container_path, "mode": mode}
-
+            host_path = Path(host)
+            if host_path.exists():
+                volumes[host] = {"bind": container_path, "mode": mode}
+            else:
+                dprint(Verbosity.DEBUG, f"Skipping non exitsing volume {host}")
         return volumes
 
     def _get_environment(self, config: dict) -> dict[str, str]:
