@@ -138,7 +138,7 @@ def parse_volume_spec(spec: str) -> tuple[str, str, str]:
 
 
 
-class AddonsConfiguration:
+class Configuration:
     """Locate and read the configuration files controlling the addons.
 
     All configuration management lives here: finding the active

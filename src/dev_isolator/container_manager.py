@@ -17,7 +17,7 @@ import sys
 import time
 import podman.errors
 from pathlib import Path
-from .config import AddonsConfiguration
+from .config import Configuration
 from .utils import dprint, Verbosity
 from .constants import (IMAGE_PREFIX,
                         CONTAINER_NAME_SUFFIX_LENGTH,
@@ -62,7 +62,7 @@ class ContainerDefintion:
     mounts declared directly in the active ``config.yaml`` and, in
     addition, those each enabled addon requests through a
     ``config.<addon_name>.yaml`` file (see
-    :class:`dev_isolator.config.AddonsConfiguration`) are passed
+    :class:`dev_isolator.config.Configuration`) are passed
     to the container when it is created (see
     :meth:`run_container`). Settings from ``config.yaml`` are applied
     first, addon settings override them and the ``/workspace`` mount of
@@ -104,7 +104,7 @@ class ContainerDefintion:
             self.tag = "default"
 
         self.bundled_dir = BUNDLE_DIR
-        self.config = AddonsConfiguration(self.context_dir, self.bundled_dir,
+        self.config = Configuration(self.context_dir, self.bundled_dir,
                                           self.config_file,
                                           self.addons_search_path)
 

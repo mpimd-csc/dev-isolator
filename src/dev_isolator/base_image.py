@@ -10,7 +10,7 @@ tagged ``dev-isolator-<name>:<tag>``, e.g.
 The used Containerfile of a base image merges three sources: the base
 Containerfile itself, the addons enabled in the active ``config.yaml``
 (each ``addon.<name>.jinja2`` file rendered as a jinja2 template with
-the host context, see :class:`AddonsConfiguration`) and the host user
+the host context, see :class:`Configuration`) and the host user
 block (a user with the invoking host user's UID, GID and username,
 template ``add_user.containerfile.jinja2``).
 
@@ -31,7 +31,7 @@ from .podman_utils import get_image_id, remove_superseeded_image
 from .utils import dprint, Verbosity, get_verbosity
 from .constants import BUNDLE_DIR, TEMPLATES_DIR
 from .waitspinner import WaitSpinner
-from .config import AddonsConfiguration
+from .config import Configuration
 
 import os
 import pwd
@@ -148,7 +148,7 @@ class BaseImage:
                 dprint(Verbosity.DEBUG, f"Found base image {value} in {path}")
                 self.base_images[value] = path
 
-        self.addons = AddonsConfiguration(
+        self.addons = Configuration(
             context_dir,
             self.bundled_dir,
             self.config_file,
@@ -356,7 +356,7 @@ class BaseImage:
         ``base_content`` and appends the host user block (same UID,
         GID and username as the invoking user, see :meth:`add_user_content`),
         followed by every addon file from
-        :meth:`AddonsConfiguration.addon_files` rendered as a jinja2
+        :meth:`Configuration.addon_files` rendered as a jinja2
         template (see :func:`render_template` for the template
         variables), separated by a comment naming the addon file.
 
@@ -368,7 +368,7 @@ class BaseImage:
             append the host user and the addons to.
         :returns: The merged Containerfile content.
         :raises RuntimeError: if an addon config file is invalid (via
-            :meth:`AddonsConfiguration.addon_files`).
+            :meth:`Configuration.addon_files`).
         """
         text = str(base_content)
         text += "\n\n" + self.add_user_content()
