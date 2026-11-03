@@ -11,6 +11,9 @@ from the host while the sources stay in place.
 
 The sub commands are:
 
+``init``
+    Initialize a local ``.devisolator`` configuration for the current
+    project.
 ``build``
     Build the image for the current project.
 ``shell``
@@ -27,6 +30,8 @@ The sub commands are:
     current project).
 ``list-base``
     List the base image definitions bundled with dev-isolator.
+``help``
+    Show the help message.
 
 The ``--shell/-s`` option, given before the sub command, selects the
 shell used by ``shell`` and by ``run``/``opencode``/``claude`` when they

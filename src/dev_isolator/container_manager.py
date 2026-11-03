@@ -78,9 +78,9 @@ class ContainerDefintion:
         :param context_dir: Optional path to the build context
             directory. When ``None``, the package's bundled
             ``data`` directory is used.
-        :param config: Path to the project's ``config.yaml``
-            determining the enabled addons. May be ``None``, in
-            which case every ``addon.*`` file is used.
+        :param config: The project's
+            :class:`dev_isolator.config.Configuration` determining
+            the enabled addons.
         :param tag: Tag variant of the image to build, so one project
             can have several configurations in parallel. Defaults to
             ``"default"``.
@@ -364,8 +364,8 @@ class ContainerDefintion:
 
         Like :meth:`_is_devisolator_image`, but limited to the current
         working directory: an image counts when one of its tags names
-        the ``image_name_prefix()`` repository (``dev-isolator:<slug>``
-        for the current path), for example ``dev-isolator:my-project``
+        the ``dev-isolator:<slug>`` repository of the current path,
+        for example ``dev-isolator:my-project``
         or ``dev-isolator:my-project--default`` (optionally prefixed by
         a registry such as ``localhost/``). A different project whose
         slug only shares a prefix (e.g. ``my-project-2``) does not

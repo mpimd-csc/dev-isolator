@@ -8,14 +8,14 @@ such as ``localhost/dev-isolator-ubuntu:26.04``.
 
 When the project image is built, the merged Containerfile (the project
 Containerfile plus the trailing workdir block: ``USER`` of the host user
-and ``WORKDIR /workspace``) is passed to ``podman build`` with the
-project's :const:`image_name` tag as a custom build context. The build
-context - the directory holding the project's ``.devisolator`` folder -
-is sent to the podman service as a tarball that skips the directories a
-dev-isolator image never needs (see
-:func:`dev_isolator.build_context.create_context_tar`), so building a
-large repository stays fast. A previous image replaced by the build is
-removed afterwards (see
+and ``WORKDIR /workspace``) is written into the build context and passed
+to ``podman build`` with the project's image tag. By default the build
+context is an empty temporary directory holding only that Containerfile
+(the project sources stay on the host and are mounted at ``/workspace``
+at run time); when ``build.local_context`` is set, the project's own
+context directory is used instead so ``ADD``/``COPY`` instructions can
+read the sources. A previous image replaced by the build is removed
+afterwards (see
 :func:`dev_isolator.podman_utils.remove_superseeded_image`).
 
 Copyright (C) 2026 Martin Köhler
@@ -103,28 +103,29 @@ class ContainerImage:
 
     :attr base_image: The
         :class:`dev_isolator.base_image.BaseImage` this Containerfile
-        is based on, built on initialization.
+        is based on, created on initialization (built during
+        :meth:`build`).
     """
 
     def __init__(self, context_dir, container_file, config, image_name):
-        """Set up the container file and build its base image.
+        """Set up the container file and its base image.
 
         :param context_dir: Path to the build context directory; the
             temporary merged Containerfile is written here during the
             build.
         :param container_file: Path to the project's ``Containerfile``
             inside the build context.
-        :param config: Path to the project's ``config.yaml``,
-            determining the enabled addons of the base image build.
+        :param config: The project's
+            :class:`dev_isolator.config.Configuration`, determining the
+            enabled addons of the base image build.
         :param image_name: Tag used for the built project image (see
             :meth:`dev_isolator.container_manager.ContainerDefintion.
             image_name`).
         :raises FileNotFoundError: if ``container_file`` does not
-            exist or the referenced base image has no matching base
-            Containerfile.
+            exist.
         :raises RuntimeError: if the Containerfile does not contain
             exactly one ``FROM`` instruction or does not use a
-            dev-isolator image as base, or if a podman build fails.
+            dev-isolator image as base.
         """
         self.context_dir = Path(context_dir)
         self.container_file = Path(container_file)
@@ -267,11 +268,13 @@ class ContainerImage:
                 remove_superseeded_image(client, previous_id, image.id, tag)
         except podman.errors.BuildError as e:
             if keep_container_file:
-                self._safe_container_file(temp_container_file.name)
+                self._safe_container_file(
+                    temp_container_file.read_text(encoding="utf-8"))
             raise RuntimeError(f"Failed to build image {tag}: {e}") from e
         except podman.errors.APIError as e:
             if keep_container_file:
-                self._safe_container_file(temp_container_file.name)
+                self._safe_container_file(
+                    temp_container_file.read_text(encoding="utf-8"))
             raise RuntimeError(f"Podman API error while building {tag}: {e}") \
                 from e
         finally:

@@ -123,10 +123,9 @@ class BaseImage:
         :param context_dir: Path to the project's build context
             directory; the temporary merged base Containerfile is
             written here during the build.
-        :param config: Path to the project's ``config.yaml``,
-            determining the enabled addons. May be ``None``, in which
-            case (as with a missing file) every ``addon.*`` file is
-            used.
+        :param config: The project's
+            :class:`dev_isolator.config.Configuration`, determining the
+            enabled addons. May be ``None``.
         """
         self.config = config
         self.bundled_dir = BUNDLE_DIR
@@ -244,7 +243,9 @@ class BaseImage:
 
         :param image: The base image to build the project image from,
             e.g. ``localhost/dev-isolator-ubuntu:26.04``.
-        :returns: The built image.
+        :returns: The tuple ``(image, image_tag, content_hash)`` of the
+            built image, its tag and the SHA-256 hash of the built
+            Containerfile content.
         :raises FileNotFoundError: if no bundled base Containerfile
             matches ``image``.
         :raises RuntimeError: if the tag cannot be derived from
@@ -322,7 +323,7 @@ class BaseImage:
     def add_user_content(self) -> str:
         """Return the Containerfile instructions adding the host user.
 
-        Renders the ``templates/add_user.containerfile.jinja2``
+        Renders the ``add_user.containerfile.jinja2``
         template shipped with dev-isolator (see :const:`TEMPLATES_DIR`)
         with the host context (see :func:`render_template`), as do the
         ``addon.*`` files in :meth:`merged_container_file_content`.
@@ -344,7 +345,7 @@ class BaseImage:
         ``base_content`` and appends the host user block (same UID,
         GID and username as the invoking user, see :meth:`add_user_content`),
         followed by every addon file from
-        :meth:`Configuration.addon_files` rendered as a jinja2
+        :meth:`Configuration.list_addon_files` rendered as a jinja2
         template (see :func:`render_template` for the template
         variables), separated by a comment naming the addon file.
 
@@ -356,7 +357,7 @@ class BaseImage:
             append the host user and the addons to.
         :returns: The merged Containerfile content.
         :raises RuntimeError: if an addon config file is invalid (via
-            :meth:`Configuration.addon_files`).
+            :meth:`Configuration.list_addon_files`).
         """
         text = str(base_content)
         text += "\n\n" + self.add_user_content()

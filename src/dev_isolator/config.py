@@ -140,20 +140,19 @@ def parse_volume_spec(spec: str) -> tuple[str, str, str]:
 class Configuration:
     """Locate and read the configuration files controlling the addons.
 
-    All configuration management lives here: finding the active
-    ``config.yaml`` (see :meth:`config_file`), the ``addon.*`` files
-    to append to the Containerfile (see :meth:`addon_files`), the
-    per-addon ``config.<addon_name>.yaml`` files with the environment
+    All configuration management lives here: the active ``config.yaml``
+    (the ``config_file`` given to the constructor), the ``addon.*``
+    files to append to the Containerfile (see :meth:`list_addon_files`),
+    the per-addon ``config.<addon_name>.yaml`` files with the environment
     variables and volumes of every addon (see
     :meth:`addon_run_settings`) and the environment variables and
     volumes declared directly in the ``config.yaml`` (see
-    :meth:`config_run_settings`).
+    :meth:`config_environment` and :meth:`config_volumes`).
 
     The ``.devisolator`` directory inside the build context takes
     precedence over the directory bundled with dev-isolator: the
     first configuration file found is used and the bundled list is
-    ignored entirely. Without any configuration file, every
-    ``addon.*`` file is used.
+    ignored entirely.
 
     Computed results are cached for the lifetime of the instance, so
     repeated calls (e.g. during a build) evaluate each configuration
@@ -188,23 +187,20 @@ class Configuration:
             raise RuntimeError(f"Invalid config file {config_file}: "
                                "expected a mapping with an 'addons' key")
 
-    def enabled_addons(self) -> set[str] | None:
+    def enabled_addons(self) -> set[str]:
         """Return the names of the enabled addons.
 
-        Only the first ``config.yaml`` file found by
-        :meth:`config_file` is used: the
-        ``.devisolator/config.yaml`` in the build context when it
-        exists, otherwise the bundled one.
+        Reads the ``addons`` key of the ``config.yaml`` file given to
+        the constructor (the active config file).
 
         The result is computed once and cached for the lifetime of
         this instance, so repeated calls (e.g. from
-        :meth:`addon_files` during a build) do not print the addon
+        :meth:`list_addon_files` during a build) do not print the addon
         managing messages again.
 
-        :returns: The set of enabled addon names, or ``None`` when
-            no ``config.yaml`` file exists at all (in which case
-            every ``addon.*`` file is used).
-        :raises RuntimeError: if a ``config.yaml`` file is invalid.
+        :returns: The set of enabled addon names, or an empty set when
+            the ``addons`` key is missing (no addons enabled).
+        :raises RuntimeError: if the ``config.yaml`` file is invalid.
         """
         if self._enabled_addons is _UNSET:
             enabled = self.yaml_data.get("addons", None)
@@ -233,8 +229,8 @@ class Configuration:
         Only addons whose name (the part after ``addon.`` with the
         ``.jinja2`` suffix removed, e.g. ``opencode`` for
         ``addon.opencode.jinja2``) is enabled via
-        :meth:`enabled_addons` are returned. Without any
-        ``config.yaml`` file, every ``addon.*`` file is returned.
+        :meth:`enabled_addons` are returned; addons whose name is not
+        in the enabled set are skipped with a message.
 
         Like :meth:`enabled_addons`, the result is computed once and
         cached for the lifetime of this instance, so the addon
@@ -254,7 +250,7 @@ class Configuration:
                     if not addon.is_file():
                         continue
                     name = addon_name(addon)
-                    if enabled is not None and name not in enabled:
+                    if name not in enabled:
                         dprint(Verbosity.INFO,
                                f"Skipping disabled addon: {addon.name}")
                         continue
@@ -271,8 +267,9 @@ class Configuration:
 
         The ``.devisolator/config.<addon_name>.yaml`` in the build
         context is used when it exists; otherwise the bundled
-        ``config.<addon_name>.yaml`` is used. Like
-        :meth:`config_file`, the first found file wins.
+        ``config.<addon_name>.yaml`` is used. As with the addon file
+        lookup, the first found file wins (the search paths are in
+        precedence order).
 
         :param addon_name: Name of the addon (the part after
             ``addon.`` in the addon file name, with the ``.jinja2``
@@ -340,35 +337,31 @@ class Configuration:
         return environment, volumes
 
     def config_environment(self) -> dict[str, str]:
-        """Return the environment variables and volume mounts declared
-        in the active ``config.yaml``.
+        """Return the environment variables declared in the active
+        ``config.yaml``.
 
         The ``environment`` entries are either ``NAME`` (taken from
-        the host) or ``NAME=value`` (used as given); the ``volumes``
-        entries are ``host:container[:mode]`` specs;
-        both are processed exactly like those of an addon config file
-        (see :func:`run_settings_from_config`).
+        the host) or ``NAME=value`` (used as given); both are
+        processed exactly like those of an addon config file
+        (see :meth:`_get_environment`).
 
-        :returns: The tuple ``(environment, volumes)`` in the same shape
-            as :meth:`addon_run_settings`, or ``({}, {})`` when no
-            ``config.yaml`` exists at all.
+        :returns: A dict mapping variable names to their values (the
+            environment part only), or ``{}`` when none are declared.
         :raises RuntimeError: if the ``config.yaml`` is invalid.
         """
         return self._get_environment(self.yaml_data)
 
     def config_volumes(self) -> dict[str, dict]:
-        """Return the environment variables and volume mounts declared
-        in the active ``config.yaml``.
+        """Return the volume mounts declared in the active
+        ``config.yaml``.
 
-        The ``environment`` entries are either ``NAME`` (taken from
-        the host) or ``NAME=value`` (used as given); the ``volumes``
-        entries are ``host:container[:mode]`` specs;
-        both are processed exactly like those of an addon config file
-        (see :func:`run_settings_from_config`).
+        The ``volumes`` entries are ``host:container[:mode]`` specs;
+        they are processed exactly like those of an addon config file
+        (see :meth:`_get_volumes`).
 
-        :returns: The tuple ``(environment, volumes)`` in the same shape
-            as :meth:`addon_run_settings`, or ``({}, {})`` when no
-            ``config.yaml`` exists at all.
+        :returns: A dict mapping expanded host paths to
+            ``{"bind": container_path, "mode": mode}`` dicts (the
+            volumes part only), or ``{}`` when none are declared.
         :raises RuntimeError: if the ``config.yaml`` is invalid.
         """
         return self._get_volumes(self.yaml_data)
@@ -386,28 +379,20 @@ class Configuration:
     # Internal Routines
     #
     def _get_volumes(self, config: dict) -> dict[str, dict]:
-        """Turn a parsed config mapping into the environment/volumes dicts.
+        """Turn the ``volumes`` entries of a config mapping into the
+        podman volume-mount dict.
 
-        Applies the shared processing used for both the main ``config.yaml``
-        and an addon ``config.<addon_name>.yaml`` to the mapping returned by
-        :func:`read_environment_and_volumes`:
+        The ``volumes`` entries are ``host:container[:mode]`` specs;
+        ``ENV[VAR]`` references are resolved (a spec referencing an unset
+        variable is skipped) and then ``~`` and ``${VAR}`` in the host path
+        are expanded. The same processing is used for both the main
+        ``config.yaml`` and an addon ``config.<addon_name>.yaml``.
 
-        - ``environment`` entries are either ``NAME``, which is taken
-          from the host environment (variables that are not set on the
-          host are skipped with a message), or ``NAME=value``, where
-          ``value`` is used as-is.
-        - ``volumes`` holds ``host:container[:mode]`` specs; ``ENV[VAR]``
-          references are resolved (a spec referencing an unset variable is
-          skipped) and then ``~`` and ``${VAR}`` in the host path are
-          expanded.
-
-        :param config: The mapping as returned by
-            :func:`read_environment_and_volumes`.
-        :returns: The tuple ``(environment, volumes)`` where ``environment``
-            maps variable names to their values and ``volumes`` maps
-            expanded host paths to ``{"bind": container_path, "mode": mode}``
-            dicts, in the shape expected by the podman bindings'
-            ``containers.create()``.
+        :param config: A config mapping holding a ``volumes`` key (a list
+            of ``host:container[:mode]`` specs).
+        :returns: A dict mapping expanded host paths to
+            ``{"bind": container_path, "mode": mode}`` dicts, in the shape
+            expected by the podman bindings' ``containers.create()``.
         """
         volumes: dict[str, dict] = {}
 
@@ -429,28 +414,18 @@ class Configuration:
         return volumes
 
     def _get_environment(self, config: dict) -> dict[str, str]:
-        """Turn a parsed config mapping into the environment/volumes dicts.
+        """Turn the ``environment`` entries of a config mapping into the
+        podman environment dict.
 
-        Applies the shared processing used for both the main ``config.yaml``
-        and an addon ``config.<addon_name>.yaml`` to the mapping returned by
-        :func:`read_environment_and_volumes`:
+        The ``environment`` entries are either ``NAME``, which is taken
+        from the host environment (variables that are not set on the host
+        are skipped with a message), or ``NAME=value``, where ``value`` is
+        used as-is. The same processing is used for both the main
+        ``config.yaml`` and an addon ``config.<addon_name>.yaml``.
 
-        - ``environment`` entries are either ``NAME``, which is taken
-          from the host environment (variables that are not set on the
-          host are skipped with a message), or ``NAME=value``, where
-          ``value`` is used as-is.
-        - ``volumes`` holds ``host:container[:mode]`` specs; ``ENV[VAR]``
-          references are resolved (a spec referencing an unset variable is
-          skipped) and then ``~`` and ``${VAR}`` in the host path are
-          expanded.
-
-        :param config: The mapping as returned by
-            :func:`read_environment_and_volumes`.
-        :returns: The tuple ``(environment, volumes)`` where ``environment``
-            maps variable names to their values and ``volumes`` maps
-            expanded host paths to ``{"bind": container_path, "mode": mode}``
-            dicts, in the shape expected by the podman bindings'
-            ``containers.create()``.
+        :param config: A config mapping holding an ``environment`` key (a
+            list of ``NAME`` or ``NAME=value`` entries).
+        :returns: A dict mapping variable names to their values.
         """
         environment: dict[str, str] = {}
 
