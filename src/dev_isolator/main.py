@@ -48,6 +48,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 import argparse
 import sys
 import os
+import shutil
 
 from textwrap import dedent
 from .container_manager import ContainerDefintion
@@ -439,13 +440,16 @@ def init_project(args) -> int:
             file_content = replace_from_images(file_content, new_image)
             container_file.write_text(file_content)
         else:
-            src_container_file.copy(container_file)
+            shutil.copy(src_container_file, container_file)
+            # Works with python >= 3.14
+            # src_container_file.copy(container_file)
 
     if config_file.is_file() and not force:
         print(f"Configuration file {config_file} already exists and will not "
               "be overwritten. Use ``init -f`` to overwrite.")
     else:
-        src_config_file.copy(config_file)
+        shutil.copy(src_config_file, config_file)
+        #  src_config_file.copy(config_file)
 
     print(f"Created new config in {user_dir}")
 
