@@ -1,5 +1,7 @@
 # DI_BASE = ubuntu:24.04
+# DI_BASE = ubuntu:noble
 FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND noninteractive
 
 RUN apt-get update && apt install -y cmake build-essential git curl wget
 

@@ -42,7 +42,7 @@ import jinja2
 import hashlib
 from functools import lru_cache
 from tempfile import mkstemp, TemporaryDirectory
-from .config import Configuration
+
 
 def render_template(template: jinja2.Template) -> str:
     """Render a Containerfile jinja2 template with the host
@@ -117,12 +117,9 @@ class BaseImage:
         ``ubuntu:26.04`` to ``data/base/Containerfile.ubuntu-26.04``.
     """
 
-    def __init__(self, context_dir=None, config: Configuration = None):
+    def __init__(self, config: Configuration = None):
         """Set up the base image for a build context.
 
-        :param context_dir: Path to the project's build context
-            directory; the temporary merged base Containerfile is
-            written here during the build.
         :param config: The project's
             :class:`dev_isolator.config.Configuration`, determining the
             enabled addons. May be ``None``.
@@ -136,9 +133,9 @@ class BaseImage:
         self.base_images = {}
         for path in sorted(self.base_image_dir.glob("Containerfile.*")):
             value = self._parse_di_base(path)
-            if value is not None:
-                dprint(Verbosity.DEBUG, f"Found base image {value} in {path}")
-                self.base_images[value] = path
+            for v in value:
+                dprint(Verbosity.DEBUG, f"Found base image {v} in {path}")
+                self.base_images[v] = path
 
     def list_base_images(self):
         """Return the sorted list of bundled base image names.
@@ -157,11 +154,11 @@ class BaseImage:
         return bil
 
     def _parse_di_base(self, path):
-        """Return the DI-BASE value from the file's first comment block."""
-        # Matches "DI-BASE = VALUE" or "DI_BASE = VALUE" in a comment line.
+        """Return the DI_BASE value from the file's first comment block."""
+        # Matches "DI_BASE = VALUE" in a comment line.
         _DI_BASE_RE = re.compile(
-            r"#\s*DI[-_]BASE\s*=\s*(\S+)")
-        value = None
+            r"#\s*DI_BASE\s*=\s*(\S+)")
+        value = []
         with path.open() as fh:
             for line in fh:
                 line = line.strip()
@@ -171,8 +168,7 @@ class BaseImage:
                     break
                 match = _DI_BASE_RE.search(line)
                 if match:
-                    value = match.group(1)
-                    break
+                    value.append(match.group(1))
         return value
 
     def write_container_file(self, directory):

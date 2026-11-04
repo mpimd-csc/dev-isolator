@@ -427,14 +427,10 @@ def init_project(args) -> int:
             # normalized so the FROM instruction never ends up with a
             # doubled prefix.
             base_name = args.init_base
-            for prefix in ("localhost/dev-isolator-", "dev-isolator-"):
-                if base_name.startswith(prefix):
-                    base_name = base_name.removeprefix(prefix)
-                    break
             if base_name not in lb:
                 raise RuntimeError(
                     f"Base image {args.init_base} unknown.")
-            new_image = f"localhost/dev-isolator-{base_name}"
+            new_image = f"{base_name}"
 
             file_content = src_container_file.read_text(encoding="utf-8")
             file_content = replace_from_images(file_content, new_image)
@@ -468,7 +464,7 @@ def list_base() -> int:
     """
     base = BaseImage()
     for bi in base.list_base_images():
-        print(f"localhost/dev-isolator-{bi}")
+        print(f"{bi}")
     return 0
 
 
@@ -526,10 +522,9 @@ def get_path(config):
 
     if (config and not di_path) or (config and
                                     not (di_path / config).is_dir()):
-
-        raise RuntimeError("--config or DEVISOLATOR_CONFIG specified but "
-                           f"'{config}' in the .devisolator directory does "
-                           "not exists.")
+        dprint(Verbosity.INFO, "--config or DEVISOLATOR_CONFIG specified but "
+                               f"'{config}' in the .devisolator directory "
+                               "does not exists.")
 
     candidates_container_file: [Path] = list()
     candidates_config_file: [Path] = list()
@@ -618,17 +613,15 @@ def main_intern() -> int:
     if args.config == "default":
         args.config = None
 
-    context_dir, container_file, config_file, addon_search_path = get_path(
-        args.config)
-
-    config = Configuration(config_file, addon_search_path)
-
     # Commands that do not require an initialized ContainerDefintion object
     if args.command == "init":
         return init_project(args)
     if args.command == "list-base":
         return list_base()
 
+    context_dir, container_file, config_file, addon_search_path = get_path(
+        args.config)
+    config = Configuration(config_file, addon_search_path)
     definition = ContainerDefintion(context_dir, container_file, config,
                                     args.config)
 

@@ -32,7 +32,6 @@ from .base_image import BaseImage, host_username
 from .podman_utils import get_image_id, remove_superseeded_image
 from .utils import dprint, Verbosity, get_verbosity
 from .waitspinner import WaitSpinner
-from .constants import BUNDLE_DIR
 from tempfile import mkstemp, TemporaryDirectory
 from tree_sitter import Language, Parser
 import tree_sitter_containerfile
@@ -143,14 +142,16 @@ class ContainerImage:
         result = result[0]
         base_image_name = result.get("image", "xxx")
         base_image_tag = result.get("tag", None)
-        if not (base_image_name.startswith("localhost/dev-isolator-") or
-                base_image_name.startswith("dev-isolator-")):
-            raise RuntimeError(f"The setup in {self.container_file} does not "
-                               "use a dev-isolator image as base. Got "
-                               f"{base_image_name}")
+
+        for p in ("localhost/dev-isolator-", "dev-isolator-"):
+            base_image_name = base_image_name.removeprefix(p)
         self.from_image_name = f"{base_image_name}{base_image_tag}"
 
-        self.base_image = BaseImage(self.context_dir, self.config)
+        self.base_image = BaseImage(self.config)
+
+        if self.from_image_name not in self.base_image.list_base_images():
+            raise RuntimeError(f"{self.from_image_name} is not in the list of "
+                               "base images")
 
     def _write_container_file(self, directory):
         """Write the used Containerfile for the image build.
