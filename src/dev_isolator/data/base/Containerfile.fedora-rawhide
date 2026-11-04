@@ -1,4 +1,5 @@
 # DI_BASE = fedora:rawhide
+# DI_PKG = dnf
 FROM fedora:rawhide
 
 RUN dnf install -y cmake gcc curl wget git

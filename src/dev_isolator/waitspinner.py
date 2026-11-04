@@ -43,17 +43,22 @@ class WaitSpinner:
     #: Seconds between icon changes.
     INTERVAL = 0.1
 
-    def __init__(self, message: str = "Waiting"):
+    def __init__(self, message: str = "Waiting", final: str = "done"):
         """Prepare, but do not yet start, the animation.
 
         ``message`` is the text shown (and later summarized) next to
         the rotating icons, e.g. ``"Building image"``.
         """
         self._message = message.strip().rstrip(".")
+        self._final = final.strip().rstrip(".")
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._animate = False
         self._line_len = 0
+        self._add_text = ""
+
+    def set_text(self, text: str):
+        self._add_text = text
 
     def _run(self) -> None:
         """Animate the spinner until :meth:`__exit__` stops it."""
@@ -93,8 +98,9 @@ class WaitSpinner:
         if self._thread is not None:
             self._thread.join()
         if exc_type is None:
-            summary = f"✨ {self._message} done in " \
-                      f"{time.monotonic() - self._started:.1f}s"
+            summary = f"✨ {self._message} {self._final} done in " \
+                      f"{time.monotonic() - self._started:.1f}s " \
+                      f"{self._add_text}"
             if self._animate:
                 # Overwrite the spinning line with the ready emoticon.
                 stream = sys.stdout

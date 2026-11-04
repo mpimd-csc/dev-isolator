@@ -27,7 +27,8 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 from pathlib import Path
-from .podman_utils import get_image_id, remove_superseeded_image
+from .podman_utils import (get_image_id, remove_superseeded_image,
+                           replace_from_images)
 from .utils import dprint, Verbosity, get_verbosity
 from .constants import BUNDLE_DIR, TEMPLATES_DIR
 from .waitspinner import WaitSpinner
@@ -42,6 +43,42 @@ import jinja2
 import hashlib
 from functools import lru_cache
 from tempfile import mkstemp, TemporaryDirectory
+
+
+def detect_package_manager(image: str) -> str | None:
+    """Detect the package manager available in a container image.
+
+    Runs ``image`` in a short-lived podman container and checks for
+    ``apt``, ``dnf``, ``zypper`` and ``pacman`` (in that order). The
+    container is removed again afterwards.
+
+    :param image: The image to run, e.g. ``ubuntu:26.04``.
+    :returns: The name of the first package manager found
+        (``apt``, ``dnf``, ``zypper`` or ``pacman``), or ``None``
+        when none of them is available.
+    :raises RuntimeError: if the podman run or exec fails.
+    """
+    package_managers = ("apt", "dnf", "zypper", "pacman")
+    try:
+        with WaitSpinner(f"Detecting package manager for {image}") as spinner:
+            with podman.PodmanClient() as client:
+                container = client.containers.run(image, command=["sleep",
+                                                  "infinity"], detach=True)
+                try:
+                    for pm in package_managers:
+                        exit_code, _ = container.exec_run(
+                            ["sh", "-c", f"command -v {pm}"])
+                        if exit_code == 0:
+                            spinner.set_text(f"-- Package Manager: {pm}")
+                            return pm
+                    return None
+                finally:
+                    container.kill()
+                    container.remove(force=True)
+    except podman.errors.APIError as e:
+        raise RuntimeError(
+            f"Podman API error while detecting the package manager "
+            f"of image {image}: {e}") from e
 
 
 def render_template(template: jinja2.Template) -> str:
@@ -131,11 +168,22 @@ class BaseImage:
         dprint(Verbosity.INFO, f"Base image dir: {self.base_image_dir}")
 
         self.base_images = {}
+        self.package_managers = {}
         for path in sorted(self.base_image_dir.glob("Containerfile.*")):
-            value = self._parse_di_base(path)
+            value, pkg_man = self._parse_di_base(path)
             for v in value:
                 dprint(Verbosity.DEBUG, f"Found base image {v} in {path}")
                 self.base_images[v] = path
+            if pkg_man:
+                if self.package_managers.get(pkg_man):
+                    dprint(Verbosity.ERROR, "Base image for package manager "
+                                            f"{pkg_man} already exists in "
+                                            f"{self.package_managers[pkg_man]}"
+                                            f", ignore from {path}")
+                else:
+                    dprint(Verbosity.DEBUG, "Found package_manager base for "
+                                            f"{pkg_man} in {path}")
+                    self.package_managers[pkg_man] = value[0]
 
     def list_base_images(self):
         """Return the sorted list of bundled base image names.
@@ -158,7 +206,11 @@ class BaseImage:
         # Matches "DI_BASE = VALUE" in a comment line.
         _DI_BASE_RE = re.compile(
             r"#\s*DI_BASE\s*=\s*(\S+)")
+        _DI_PKG_RE = re.compile(
+            r"#\s*DI_PKG\s*=\s*(\S+)")
+
         value = []
+        pkg_man = None
         with path.open() as fh:
             for line in fh:
                 line = line.strip()
@@ -166,10 +218,13 @@ class BaseImage:
                     continue
                 if not line.startswith("#"):
                     break
-                match = _DI_BASE_RE.search(line)
-                if match:
-                    value.append(match.group(1))
-        return value
+                base_match = _DI_BASE_RE.search(line)
+                pkg_match = _DI_PKG_RE.search(line)
+                if base_match:
+                    value.append(base_match.group(1))
+                if pkg_match:
+                    pkg_man = pkg_match.group(1)
+        return value, pkg_man
 
     def write_container_file(self, directory):
         """Write the used Containerfile for the base image build.
@@ -242,20 +297,18 @@ class BaseImage:
         :returns: The tuple ``(image, image_tag, content_hash)`` of the
             built image, its tag and the SHA-256 hash of the built
             Containerfile content.
-        :raises FileNotFoundError: if no bundled base Containerfile
-            matches ``image``.
-        :raises RuntimeError: if the tag cannot be derived from
-            ``image`` or the podman build fails.
+        :raises RuntimeError: if no bundled base Containerfile matches
+            ``image`` and its package manager is not supported (see
+            :func:`detect_package_manager`), the tag cannot be derived
+            from ``image`` or the podman build fails.
         """
-        for prefix in ("localhost/dev-isolator-", "dev-isolator-"):
-            if image.startswith(prefix):
-                image = image.removeprefix(prefix)
-                break
-
         if not self.base_images.get(image, None):
-            raise FileNotFoundError("Could not find the base image for "
-                                    f"{image}")
-        self.base_image = image
+            pkgman = detect_package_manager(image)
+            if pkgman not in self.package_managers:
+                raise RuntimeError(f"Package manager {pkgman} not supported.")
+            self.base_image = self.package_managers[pkgman]
+        else:
+            self.base_image = image
 
         try:
             self.tag = image.split(":")[1]

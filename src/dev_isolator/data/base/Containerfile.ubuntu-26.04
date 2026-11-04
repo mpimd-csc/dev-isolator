@@ -1,5 +1,6 @@
 # DI_BASE = ubuntu:26.04
 # DI_BASE = ubuntu:resolute
+# DI_PKG = apt
 FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND noninteractive
 

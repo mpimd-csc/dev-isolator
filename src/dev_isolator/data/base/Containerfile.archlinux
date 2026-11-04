@@ -1,4 +1,5 @@
 # DI_BASE = archlinux:latest
+# DI_PKG = pacman
 FROM archlinux:latest
 
 RUN pacman -Sy --noconfirm git curl wget

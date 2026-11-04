@@ -17,7 +17,6 @@ import sys
 import time
 import podman.errors
 from pathlib import Path
-from .config import Configuration
 from .utils import dprint, Verbosity
 from .constants import (IMAGE_PREFIX,
                         CONTAINER_NAME_SUFFIX_LENGTH,

@@ -53,7 +53,7 @@ class TestMergedContainerfile:
         appended to the base image's Containerfile."""
         config = make_configuration(BUNDLED_DIR / "config.yaml",
                                     [ADDON_DIR])
-        base = BaseImage(tmp_path, config)
+        base = BaseImage(config)
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
         assert merged.startswith("FROM ubuntu:26.04\n")
@@ -71,7 +71,7 @@ class TestMergedContainerfile:
         default user."""
         import os
 
-        base = BaseImage(tmp_path, empty_configuration(tmp_path, []))
+        base = BaseImage(empty_configuration(tmp_path, []))
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
         uid = os.getuid()
@@ -102,7 +102,7 @@ class TestMergedContainerfile:
 
         config = make_configuration(config_dir / "config.yaml",
                                     [config_dir, BUNDLED_DIR])
-        base = BaseImage(tmp_path, config)
+        base = BaseImage(config)
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
         names = [a.name for a in base.config.list_addon_files()]
@@ -121,7 +121,7 @@ class TestMergedContainerfile:
         # and it does not enable the "mine" addon.
         config = make_configuration(BUNDLED_DIR / "config.yaml",
                                     [config_dir, BUNDLED_DIR])
-        base = BaseImage(tmp_path, config)
+        base = BaseImage(config)
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
         names = [a.name for a in base.config.list_addon_files()]
@@ -138,7 +138,7 @@ class TestMergedContainerfile:
 
         config = make_configuration(config_dir / "config.yaml",
                                     [config_dir, BUNDLED_DIR])
-        base = BaseImage(tmp_path, config)
+        base = BaseImage(config)
         enabled = base.config.enabled_addons()
 
         # Only the project config is honored; the bundled list is
@@ -158,7 +158,7 @@ class TestMergedContainerfile:
 
         config = make_configuration(BUNDLED_DIR / "config.yaml",
                                     [config_dir, BUNDLED_DIR])
-        base = BaseImage(tmp_path, config)
+        base = BaseImage(config)
 
         assert base.config.config_file \
             == (BUNDLED_DIR / "config.yaml").resolve()
@@ -175,7 +175,7 @@ class TestMergedContainerfile:
 
         config = make_configuration(config_dir / "config.yaml",
                                     [config_dir, BUNDLED_DIR])
-        base = BaseImage(tmp_path, config)
+        base = BaseImage(config)
 
         assert base.config.config_file \
             == (config_dir / "config.yaml").resolve()
@@ -190,7 +190,7 @@ class TestMergedContainerfile:
             / BUNDLE_DIR
 
         config = make_configuration(bundled / "config.yaml", [ADDON_DIR])
-        base = BaseImage(bundled, config)
+        base = BaseImage(config)
         addons = base.config.list_addon_files()
 
         assert len(addons) == len({a for a in addons})
@@ -211,7 +211,7 @@ class TestMergedContainerfile:
 
         config = make_configuration(config_dir / "config.yaml",
                                     [config_dir])
-        base = BaseImage(tmp_path, config)
+        base = BaseImage(config)
         merged = base.merged_container_file_content("FROM ubuntu:26.04\n")
 
         username = host_username()
@@ -446,7 +446,7 @@ class TestBaseImageBuild:
         (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
         config = make_configuration(config_dir / "config.yaml",
                                     [config_dir])
-        return BaseImage(tmp_path, config)
+        return BaseImage(config)
 
     def test_build_appends_addons_to_base_containerfile(
             self, base, monkeypatch):
@@ -473,14 +473,18 @@ class TestBaseImageBuild:
 
     def test_build_with_unknown_base_image_raises(
             self, base, monkeypatch):
-        """A base image without a matching Containerfile raises and
-        nothing is built."""
+        """A base image without a matching Containerfile and without
+        a supported package manager raises and nothing is built."""
         images = FakeImages()
         monkeypatch.setattr(
             "dev_isolator.base_image.podman.PodmanClient",
             lambda: FakeClient(images))
+        # No package manager can be detected for the unknown image.
+        monkeypatch.setattr(
+            "dev_isolator.base_image.detect_package_manager",
+            lambda image: None)
 
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(RuntimeError):
             base.build("unknown:1.0")
 
         assert images.built is None

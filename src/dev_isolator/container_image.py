@@ -38,56 +38,7 @@ import tree_sitter_containerfile
 import podman.errors
 import podman
 import json
-
-
-def replace_from_images(content: str, new_image: str) -> str:
-    """Replace the image of every ``FROM`` instruction in a Containerfile.
-
-    Parses ``content`` with the tree-sitter Containerfile grammar (the
-    same grammar used by :meth:`ContainerImage.get_from_image`), finds
-    every ``FROM`` instruction's image spec and replaces it with
-    ``new_image``; tags, digests and ``AS <alias>`` parts of the
-    instruction are preserved (only the image itself is replaced, so
-    ``FROM ubuntu:26.04`` becomes e.g. ``FROM
-    localhost/dev-isolator-ubuntu:26.04-something``).
-
-    :param content: The Containerfile content to modify.
-    :param new_image: The image spec to put in place of each
-        ``FROM`` instruction's current image.
-    :returns: The modified Containerfile content.
-    """
-    parser = Parser(
-        Language(tree_sitter_containerfile.language())
-    )
-
-    source = content.encode("utf-8")
-    tree = parser.parse(source)
-
-    replacements = []
-
-    def visit(node):
-        """Collect the byte range of each ``FROM`` image spec."""
-        if node.type == "from_instruction":
-            for child in node.named_children:
-                if child.type == "image_spec":
-                    replacements.append(
-                        (child.start_byte, child.end_byte)
-                    )
-                    break
-
-        for child in node.named_children:
-            visit(child)
-
-    visit(tree.root_node)
-
-    for start, end in reversed(replacements):
-        source = (
-            source[:start]
-            + new_image.encode("utf-8")
-            + source[end:]
-        )
-
-    return source.decode("utf-8")
+from .podman_utils import replace_from_images
 
 
 class ContainerImage:
@@ -143,15 +94,8 @@ class ContainerImage:
         base_image_name = result.get("image", "xxx")
         base_image_tag = result.get("tag", None)
 
-        for p in ("localhost/dev-isolator-", "dev-isolator-"):
-            base_image_name = base_image_name.removeprefix(p)
         self.from_image_name = f"{base_image_name}{base_image_tag}"
-
         self.base_image = BaseImage(self.config)
-
-        if self.from_image_name not in self.base_image.list_base_images():
-            raise RuntimeError(f"{self.from_image_name} is not in the list of "
-                               "base images")
 
     def _write_container_file(self, directory):
         """Write the used Containerfile for the image build.
@@ -356,5 +300,3 @@ class ContainerImage:
 
         visit(tree.root_node)
         return results
-
-
