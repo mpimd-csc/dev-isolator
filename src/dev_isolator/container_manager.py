@@ -71,12 +71,11 @@ class ContainerDefintion:
     def __init__(self, context_dir, container_file, config, tag=None):
         """Set up the container definition.
 
-        :param container_file: Optional path to a custom Containerfile.
-            When ``None``, a ``Containerfile`` inside ``context_dir``
-            is used.
-        :param context_dir: Optional path to the build context
-            directory. When ``None``, the package's bundled
-            ``data`` directory is used.
+        :param container_file: Path to the custom Containerfile to
+            build and run.
+        :param context_dir: Path to the build context directory; the
+            temporary merged Containerfile is written here during the
+            build.
         :param config: The project's
             :class:`dev_isolator.config.Configuration` determining
             the enabled addons.

@@ -18,7 +18,8 @@ from dev_isolator.config import Configuration
 from dev_isolator.constants import (
     BUNDLE_DIR, ADDON_DIR, CONTAINER_NAME_SUFFIX_LENGTH)
 from dev_isolator.container_manager import ContainerDefintion
-from dev_isolator.main import DEFAULT_SHELL, create_parser, parse_args
+from dev_isolator.main import DEFAULT_SHELL, create_parser, parse_args, \
+    init_project
 from dev_isolator.utils import Verbosity
 
 # The directory bundled with dev-isolator (Containerfile, addons,
@@ -831,8 +832,8 @@ class TestMainRunDispatch:
     ``in_container_command``.
 
     ``main_intern`` is exercised directly: it holds the dispatch logic
-    and returns the handler's exit code, unlike the ``main`` wrapper,
-    which currently discards it and always returns -1.
+    and returns the handler's exit code; the ``main`` wrapper reports
+    that code unchanged (or 255 for an unhandled exception).
     """
 
     def test_run_without_command_dispatches_to_shell(self, monkeypatch):
@@ -875,6 +876,34 @@ class TestMainRunDispatch:
 
         assert di_main.main_intern() == 0
         assert called["call"] == ("make", ["test"])
+
+
+class TestMainExitCodes:
+    """Test that main() returns the handler's exit code and turns an
+    unhandled exception into the exit code 255.
+
+    The wrapper must not discard the handler's return value: its exit
+    code is passed straight through to the process exit status.
+    """
+
+    def test_returns_handler_exit_code(self, monkeypatch):
+        """The exit code of the dispatched handler is returned as-is."""
+        di_main = importlib.import_module("dev_isolator.main")
+        monkeypatch.setattr(di_main, "main_intern", lambda: 1)
+
+        assert di_main.main() == 1
+
+    def test_unhandled_exception_returns_255(self, monkeypatch):
+        """An unhandled exception is reported and turned into 255
+        instead of propagating."""
+        di_main = importlib.import_module("dev_isolator.main")
+
+        def boom():
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(di_main, "main_intern", boom)
+
+        assert di_main.main() == 255
 
 
 class TestContainerName:
@@ -1163,3 +1192,54 @@ class TestCleanRemovesMatchingContainers:
         project.clean_all_images()
 
         assert container.events == [("stop", 10), ("remove",)]
+
+
+class TestInitBaseNormalization:
+    """di init normalizes the --base value by stripping an optional
+    ``localhost/dev-isolator-``/``dev-isolator-`` prefix before matching
+    it against the bundled base images, so the generated Containerfile's
+    FROM never ends up with a doubled prefix."""
+
+    def _init_from(self, monkeypatch, tmp_path: Path, base_args):
+        """Run ``di init`` with the given ``--base`` arguments in
+        ``tmp_path`` and return the first (FROM) line of the generated
+        Containerfile."""
+        monkeypatch.chdir(tmp_path)
+        assert init_project(parse_args(["init", *base_args])) == 0
+        containerfile = (tmp_path / ".devisolator" / "Containerfile")
+        return containerfile.read_text(encoding="utf-8").splitlines()[0]
+
+    def test_default_base_is_normalized(self, monkeypatch, tmp_path: Path):
+        """The default base (localhost/dev-isolator-ubuntu:26.04) is
+        stripped to ubuntu:26.04."""
+        assert self._init_from(monkeypatch, tmp_path, []) \
+            == "FROM ubuntu:26.04"
+
+    def test_dev_isolator_prefix_is_stripped(
+            self, monkeypatch, tmp_path: Path):
+        """A ``dev-isolator-`` prefix is stripped before matching."""
+        assert self._init_from(
+            monkeypatch, tmp_path, ["--base", "dev-isolator-ubuntu:26.04"]) \
+            == "FROM ubuntu:26.04"
+
+    def test_localhost_prefix_is_stripped(
+            self, monkeypatch, tmp_path: Path):
+        """A ``localhost/dev-isolator-`` prefix is stripped before
+        matching."""
+        assert self._init_from(
+            monkeypatch, tmp_path,
+            ["--base", "localhost/dev-isolator-ubuntu:24.04"]) \
+            == "FROM ubuntu:24.04"
+
+    def test_plain_name_is_kept(self, monkeypatch, tmp_path: Path):
+        """A plain base name without prefix is used as-is."""
+        assert self._init_from(
+            monkeypatch, tmp_path, ["--base", "ubuntu:26.04"]) \
+            == "FROM ubuntu:26.04"
+
+    def test_unknown_base_raises(self, monkeypatch, tmp_path: Path):
+        """An unknown base image aborts with an error and nothing is
+        written."""
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(RuntimeError, match="unknown"):
+            init_project(parse_args(["init", "--base", "bogus:1.0"]))

@@ -164,8 +164,7 @@ class Configuration:
         """Set up the configuration for a build context.
 
         :param config_file: Path to the active ``config.yaml`` file
-            determining the enabled addons; may be ``None``, in
-            which case every ``addon.*`` file is used.
+            determining the enabled addons.
         :param addon_search_paths: List of directories searched for
             ``addon.*`` files and ``config.<addon_name>.yaml`` files,
             in precedence order (the first existing file wins).

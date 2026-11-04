@@ -378,8 +378,9 @@ def init_project(args) -> int:
     (or, with ``args.config``, its ``.devisolator/<config>``
     sub-configuration) and fill it with the ``Containerfile`` and
     ``config.yaml`` bundled with dev-isolator. The bundled
-    ``Containerfile``'s ``FROM`` instruction is always rewritten to
-    reference the selected base image: ``args.init_base`` (default
+    ``Containerfile``'s ``FROM`` instruction is rewritten to
+    reference the selected base image (when one is given):
+    ``args.init_base`` (default
     ``localhost/dev-isolator-ubuntu:26.04``) is normalized by
     stripping an optional ``localhost/dev-isolator-`` or
     ``dev-isolator-`` prefix; an unknown base image aborts with an
@@ -422,10 +423,6 @@ def init_project(args) -> int:
             base = BaseImage()
             lb = base.list_base_images()
 
-            # Accept the plain base name (`ubuntu:26.04`) as well as
-            # the image names printed by ``list-base``; both are
-            # normalized so the FROM instruction never ends up with a
-            # doubled prefix.
             base_name = args.init_base
             if base_name not in lb:
                 raise RuntimeError(
@@ -575,12 +572,10 @@ def main() -> int:
     Without an explicit subcommand, ``shell`` is executed with the
     default shell.
 
-    Any unhandled exception is reported as an error message and turned
-    into the exit code 255.
+    The exit code of the selected sub command handler is returned
+    unchanged (0 on success, 1 on error); any unhandled exception is
+    reported as an error message and turned into the exit code 255.
     """
-    main_intern()
-    return -1
-
     try:
         ret_code = main_intern()
     except Exception as e:

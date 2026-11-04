@@ -143,8 +143,9 @@ class BaseImage:
     (see :meth:`merged_container_file_content`). The resulting image
     is tagged ``dev-isolator-<name>:<tag>``.
 
-    :attr base_image: Name (without registry prefix and tag) of the
-        selected base Containerfile, e.g. ``ubuntu``.
+    :attr base_image: Identifier of the selected base Containerfile,
+        as stored in :attr:`base_images` (its ``DI_BASE`` value,
+        including the tag), e.g. ``ubuntu:26.04``.
     :attr tag: The tag of the selected base Containerfile, e.g.
         ``26.04``.
     :attr name: Like ``base_image``; the part of the selected base

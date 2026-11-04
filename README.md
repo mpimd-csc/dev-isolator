@@ -98,12 +98,13 @@ dev-isolator:
 - `config.yaml` enables the bundled `opencode` and `claude` addons and
   declares no extra `environment`/`volumes` settings; edit it to your needs
   (see [Project configuration](#project-configuration)).
-- The `Containerfile`'s single `FROM` instruction references a dev-isolator
-  base image. By default that is `ubuntu:26.04`; with `--base`/`-b` a different
-  bundled base image can be selected — pass a plain base name such as
-  `ubuntu:26.04` (the full `dev-isolator-…`/`localhost/dev-isolator-…` forms
-  printed by `list-base` are accepted as well, and are normalized to avoid a
-  doubled prefix; see [Base images](#base-images)).
+- The `Containerfile`'s single `FROM` instruction references a base image from
+  which the dev-isolator base image is built. By default that is `ubuntu:26.04`;
+  with `--base`/`-b` a different bundled base image can be selected — pass a
+  plain base name such as `ubuntu:24.04`, as printed by `list-base` (the full
+  `dev-isolator-…`/`localhost/dev-isolator-…` image forms are accepted as well
+  and are normalized to avoid a doubled prefix; see
+  [Base images](#base-images)).
 
 Existing files are kept and reported; pass `--force`/`-f` to overwrite them.
 Like `list-base`, `init` needs no pre-existing `.devisolator` directory, so it
@@ -140,8 +141,8 @@ Builds the image of the current project:
 - If a previous image carried the same tag but the build produced a different
   image id, the superseded image is removed so no dangling image remains.
 
-Building aborts when the `Containerfile` does not use a dev-isolator base image,
-or references a base image not bundled with dev-isolator (see
+Building aborts when the base image referenced by the `Containerfile` cannot be
+run or none of the supported package managers is available in it (see
 [Base images](#base-images)).
 
 **Options:**
@@ -218,8 +219,9 @@ name starts with the project's container name prefix (`dev-isolator-<slug>--<tag
 for `clean`, `dev-isolator-<slug>` for `clean --local`, `dev-isolator-` for
 `clean --all`). With `--verbose` the removed containers and images are printed.
 
-Base images (`dev-isolator-<name>:<tag>`, e.g. `dev-isolator-ubuntu:24.04`) are
-never removed by `clean`; see [Base image cleanup](#base-image-cleanup).
+Base images (`dev-isolator-<name>:<tag>-<hash>`, e.g.
+`dev-isolator-ubuntu:24.04-<hash>`) are never removed by `clean`; see
+[Base image cleanup](#base-image-cleanup).
 
 **Options:**
 
@@ -234,12 +236,13 @@ never removed by `clean`; see [Base image cleanup](#base-image-cleanup).
 dev-isolator list-base
 ```
 
-Lists the base image definitions bundled with dev-isolator, one per line as
-`localhost/dev-isolator-<name>:<tag>` (for example `localhost/dev-isolator-ubuntu:24.04`).
-These are the names a project [`Containerfile`](#base-images) can use in its `FROM`
-instruction (see [Base images](#base-images)). Unlike the other subcommands,
-`list-base` needs no initialized `.devisolator` directory and works from any
-location.
+Lists the base image definitions bundled with dev-isolator, one per line as a
+plain base name, for example `ubuntu:24.04`. These are the names a project
+[`Containerfile`](#base-images) can use in its `FROM` instruction (and the
+`--base`/`-b` option of [`init`](#init) accepts), resolved to the matching
+bundled base Containerfile (see [Base images](#base-images)). Unlike the other
+subcommands, `list-base` needs no initialized `.devisolator` directory and
+works from any location.
 
 ### Discovery of the project directory
 
@@ -449,54 +452,64 @@ This section explains the base image level, on which every project image is
 built; the project level is described in
 [Project configuration](#project-configuration).
 
-#### A project `Containerfile` must be based on a dev-isolator base image
+#### What a project `Containerfile`'s `FROM` references
 
 The single `FROM` instruction of a project's `Containerfile` must reference a
-dev-isolator base image, i.e. an image named `localhost/dev-isolator-...` or
-`dev-isolator-...`:
+base image dev-isolator can build the dev-isolator base image from. The
+simplest form is a plain base name matching one of the bundled base images
+(see [Bundle base images and addons](#bundle-base-images-and-addons)):
 
 ```dockerfile
-FROM localhost/dev-isolator-ubuntu:26.04
+FROM ubuntu:26.04
 ```
 
-The short form `FROM dev-isolator-ubuntu:26.04` is accepted as well (`localhost/`
-is how podman names locally built images). A `Containerfile` based on an
-unprepared image such as `FROM ubuntu:26.04` makes every dev-isolator command
-abort with:
+This is what the `Containerfile` written by `init` uses by default. dev-isolator
+resolves the name to the matching bundled base Containerfile (see
+[below](#where-a-base-image-comes-from)) and builds the dev-isolator base image
+from it.
 
-```
-RuntimeError: The setup in .../.devisolator/Containerfile does not use
-a dev-isolator image as base.
-```
+Any other image works as well, as long as one of the supported package managers
+(`apt`, `dnf`, `zypper` or `pacman`) is available in it: dev-isolator runs the
+image in a short-lived container to detect the package manager, and builds the
+base image from the bundled Containerfile of that package manager. The `FROM`
+image must carry a tag; a podman error is raised when the image cannot be run,
+and dev-isolator aborts with `RuntimeError: Package manager ... not supported.`
+when none of the supported package managers is found.
 
 #### Where a base image comes from
 
 Base images are built from the Containerfiles bundled with dev-isolator
 (`data/base/Containerfile.<name>`, for example `Containerfile.ubuntu-26.04`).
-Each file's first comment block names the distribution it is derived from:
+Each file's first comment block declares the base images it covers (several
+aliases can share one file, e.g. `ubuntu:24.04` and `ubuntu:noble`) and the
+package manager it provides:
 
 ```dockerfile
 # DI_BASE = ubuntu:26.04
+# DI_BASE = ubuntu:resolute
+# DI_PKG = apt
 FROM ubuntu:26.04
 RUN apt-get update && apt install -y cmake build-essential
 ```
 
-A base image built from such a file is tagged
-`dev-isolator-<name>:<tag>-<hash>`, where `name` and `tag` are the parts of the
-`DI_BASE` value around its `:` — so the file above produces
-`dev-isolator-ubuntu:26.04-<hash>` (shown as
-`localhost/dev-isolator-ubuntu:26.04-<hash>` in the local podman image store). The
-content hash keeps rebuilds of the same base distinct; a project `Containerfile`
-references the base by its unhashed `dev-isolator-<name>:<tag>` name, which
-dev-isolator resolves to the matching bundled base Containerfile.
+The `DI_PKG` comment names the package manager of the base; there is one
+bundled base per supported package manager (`apt`, `dnf`, `zypper` and
+`pacman` — Ubuntu, Debian, Fedora, AlmaLinux, openSUSE, Arch, …). When a
+project `Containerfile`'s `FROM` image is not one of the `DI_BASE` names, the
+package manager detected in that image (see
+[above](#what-a-project-containerfiles-from-references)) selects the bundled
+base Containerfile.
 
-The bundled base images are `apt`, `dnf`, `zypper`
-or `pacman` based (Ubuntu, Debian, Fedora, AlmaLinux, openSUSE, Arch, …); this
-matters because a base image
-carries the host user block, which requires `useradd` and `getent` to exist (see
-[Project configuration](#project-configuration)). A `Containerfile` referencing
-any other image aborts with a `FileNotFoundError` ("Could not find the base image
-for …").
+The built base image is tagged `dev-isolator-<name>:<tag>-<hash>`, where
+`name` and `tag` are the parts of the project `Containerfile`'s `FROM` image
+around its `:` — so a `FROM ubuntu:26.04` produces
+`dev-isolator-ubuntu:26.04-<hash>` (shown as
+`localhost/dev-isolator-ubuntu:26.04-<hash>` in the local podman image store).
+The hash is the SHA-256 hash of the merged base Containerfile content (see
+[below](#what-goes-into-the-base-image-what-goes-into-the-project-image)), so
+rebuilds with a different setup get their own tag. The project image build
+rewrites the `FROM` instruction of your `Containerfile` to this hashed tag,
+so it always references the base image matching the current setup.
 
 #### What goes into the base image, what goes into the project image
 
@@ -522,9 +535,10 @@ run; the project `Containerfile` does not need the host user steps anymore.
 
 `clean --all` only removes images whose repository is exactly `dev-isolator` (the
 project images) — see [clean](#clean). The base images are named
-`dev-isolator-<name>:<tag>` and are deliberately not removed by `clean`: being
-shared by all projects, they stay installed until you remove them manually with
-`podman rmi dev-isolator-ubuntu:26.04`.
+`dev-isolator-<name>:<tag>-<hash>` and are deliberately not removed by `clean`:
+being shared by all projects, they stay installed until you remove them manually
+with `podman rmi dev-isolator-ubuntu:26.04-<hash>` (the hash can be found with
+`podman images`, or with `--verbose`/`-vvv` during a build).
 
 #### Bundle base images and addons
 
@@ -568,7 +582,7 @@ the project root and write the files yourself:
 cd /home/user/projects/my-project
 mkdir -p .devisolator
 cat > .devisolator/Containerfile <<'EOF'
-FROM localhost/dev-isolator-ubuntu:24.04
+FROM ubuntu:24.04
 RUN apt-get update && apt-get install --yes build-essential python3-pip python3-venv
 EOF
 echo "addons: [opencode]" > .devisolator/config.yaml
@@ -592,10 +606,11 @@ my-project/
 └── README.md
 ```
 
-The `Containerfile`'s single `FROM` must be based on a dev-isolator base image
-(see [Base images](#base-images)), which provides the host user with your UID/GID
-(so `useradd` and `getent` must exist there); the project build always ends with
-`USER <you>` and `WORKDIR /workspace`.
+The `Containerfile`'s single `FROM` references the base image from which the
+dev-isolator base image is built (see
+[Base images](#base-images)); that base image provides the host user with your
+UID/GID (so `useradd` and `getent` must exist there); the project build always
+ends with `USER <you>` and `WORKDIR /workspace`.
 
 ### What gets built
 
