@@ -101,10 +101,8 @@ dev-isolator:
 - The `Containerfile`'s single `FROM` instruction references a base image from
   which the dev-isolator base image is built. By default that is `ubuntu:26.04`;
   with `--base`/`-b` a different bundled base image can be selected — pass a
-  plain base name such as `ubuntu:24.04`, as printed by `list-base` (the full
-  `dev-isolator-…`/`localhost/dev-isolator-…` image forms are accepted as well
-  and are normalized to avoid a doubled prefix; see
-  [Base images](#base-images)).
+  plain base name such as `ubuntu:24.04`, exactly as printed by `list-base`
+  (see [Base images](#base-images)).
 
 Existing files are kept and reported; pass `--force`/`-f` to overwrite them.
 Like `list-base`, `init` needs no pre-existing `.devisolator` directory, so it
@@ -503,8 +501,9 @@ base Containerfile.
 The built base image is tagged `dev-isolator-<name>:<tag>-<hash>`, where
 `name` and `tag` are the parts of the project `Containerfile`'s `FROM` image
 around its `:` — so a `FROM ubuntu:26.04` produces
-`dev-isolator-ubuntu:26.04-<hash>` (shown as
-`localhost/dev-isolator-ubuntu:26.04-<hash>` in the local podman image store).
+`dev-isolator-ubuntu:26.04-<hash>` (podman shows the image with a
+`localhost/` registry prefix in the local image store, e.g.
+`localhost/dev-isolator-ubuntu:26.04-<hash>`).
 The hash is the SHA-256 hash of the merged base Containerfile content (see
 [below](#what-goes-into-the-base-image-what-goes-into-the-project-image)), so
 rebuilds with a different setup get their own tag. The project image build

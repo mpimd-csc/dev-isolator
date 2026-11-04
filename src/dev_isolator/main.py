@@ -380,11 +380,9 @@ def init_project(args) -> int:
     ``config.yaml`` bundled with dev-isolator. The bundled
     ``Containerfile``'s ``FROM`` instruction is rewritten to
     reference the selected base image (when one is given):
-    ``args.init_base`` (default
-    ``localhost/dev-isolator-ubuntu:26.04``) is normalized by
-    stripping an optional ``localhost/dev-isolator-`` or
-    ``dev-isolator-`` prefix; an unknown base image aborts with an
-    error.
+    ``args.init_base`` (default ``ubuntu:26.04``) must match the
+    ``DI_BASE`` value of one of the bundled base Containerfiles; an
+    unknown base image aborts with an error.
 
     Existing files are kept and reported unless ``args.init_force``
     (``init -f``) is given, in which case they are overwritten.
@@ -453,8 +451,8 @@ def list_base() -> int:
     """Handle the ``list-base`` sub command.
 
     Print every base image definition bundled with dev-isolator, one per
-    line, as ``localhost/dev-isolator-<name>:<tag>`` (for example
-    ``localhost/dev-isolator-ubuntu:24.04``).  These are the names a
+    line, as ``<name>:<tag>`` (for example ``ubuntu:24.04``).  These are
+    the names a
     project ``Containerfile`` may reference as its base image (see
     :mod:`dev_isolator.base_image`).  Unlike the project commands, it
     needs no ``.devisolator`` directory.  Returns 0.

@@ -21,7 +21,7 @@ def definition(tmp_path: Path, monkeypatch) -> ContainerDefintion:
     config_dir.mkdir()
     container_file = config_dir / "Containerfile"
     container_file.write_text(
-        "FROM localhost/dev-isolator-ubuntu:26.04\n")
+        "FROM ubuntu:26.04\n")
     (config_dir / "addon.mine").write_text("RUN echo custom\n")
     (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
     # The base image build is not part of these tests; it is stubbed
@@ -503,7 +503,7 @@ class TestRunContainerSettings:
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "Containerfile").write_text(
-            "FROM localhost/dev-isolator-ubuntu:26.04\n")
+            "FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
         host_data = tmp_path / "host_data"
@@ -539,7 +539,7 @@ class TestRunContainerSettings:
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "Containerfile").write_text(
-            "FROM localhost/dev-isolator-ubuntu:26.04\n")
+            "FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
 
@@ -567,7 +567,7 @@ class TestRunContainerSettings:
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "Containerfile").write_text(
-            "FROM localhost/dev-isolator-ubuntu:26.04\n")
+            "FROM ubuntu:26.04\n")
         host_data = tmp_path / "host_data"
         host_data.mkdir()
         (config_dir / "config.yaml").write_text(
@@ -601,7 +601,7 @@ class TestRunContainerSettings:
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "Containerfile").write_text(
-            "FROM localhost/dev-isolator-ubuntu:26.04\n")
+            "FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         host_data = tmp_path / "host_data"
         host_data.mkdir()

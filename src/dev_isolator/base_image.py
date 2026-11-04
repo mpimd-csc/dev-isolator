@@ -274,11 +274,8 @@ class BaseImage:
         """Build a base image.
 
         ``image`` identifies the base image the project's Containerfile
-        is based on, for example
-        ``localhost/dev-isolator-ubuntu:26.04`` (as written in a
-        project Containerfile) or plain ``ubuntu:26.04``. An optional
-        ``localhost/dev-isolator-`` or ``dev-isolator-`` prefix is
-        stripped, and the remainder must match the ``DI_BASE`` value of
+        is based on, for example ``ubuntu:26.04``. It must match the
+        ``DI_BASE`` value of
         one of the bundled base Containerfiles (see
         :meth:`_parse_di_base` and :attr:`base_images`).
 
@@ -294,7 +291,7 @@ class BaseImage:
         exist).
 
         :param image: The base image to build the project image from,
-            e.g. ``localhost/dev-isolator-ubuntu:26.04``.
+            e.g. ``ubuntu:26.04``.
         :returns: The tuple ``(image, image_tag, content_hash)`` of the
             built image, its tag and the SHA-256 hash of the built
             Containerfile content.

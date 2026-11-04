@@ -4,7 +4,7 @@ The project's ``Containerfile`` inside the build context must be based
 on a base image built from the Containerfiles bundled with dev-isolator
 (see :class:`dev_isolator.base_image.BaseImage`): the single ``FROM``
 instruction of the project's Containerfile must reference a base image
-such as ``localhost/dev-isolator-ubuntu:26.04``.
+such as ``ubuntu:26.04``.
 
 When the project image is built, the merged Containerfile (the project
 Containerfile plus the trailing workdir block: ``USER`` of the host user

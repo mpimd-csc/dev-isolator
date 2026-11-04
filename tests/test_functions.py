@@ -313,7 +313,7 @@ class TestBuildTraceOutput:
         config_dir.mkdir()
         container_file = config_dir / "Containerfile"
         container_file.write_text(
-            "FROM localhost/dev-isolator-ubuntu:26.04\n")
+            "FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text(
             "addons:\n  - mine\n")
@@ -350,7 +350,7 @@ class TestBuildTraceOutput:
                  if line.startswith("[Containerfile] ")]
         assert lines, "no [Containerfile] lines printed"
         plain = [line.removeprefix("[Containerfile] ") for line in lines]
-        assert plain[0] == "FROM localhost/dev-isolator-ubuntu:26.04"
+        assert plain[0] == "FROM ubuntu:26.04"
         assert "# --- workdir ---" in plain
         # The default user is set before the workdir is switched.
         username = host_username()
@@ -384,7 +384,7 @@ class TestBuildTraceOutput:
         # call, because the temporary file is removed afterwards.
         content = patched_images.dockerfile_content
         assert content.startswith(
-            "FROM localhost/dev-isolator-ubuntu:26.04\n")
+            "FROM ubuntu:26.04\n")
         assert "WORKDIR /workspace" in content
 
     def test_superseded_image_is_removed_after_build(
@@ -753,7 +753,7 @@ class TestRunContainerCommand:
         config_dir.mkdir()
         container_file = config_dir / "Containerfile"
         container_file.write_text(
-            "FROM localhost/dev-isolator-ubuntu:26.04\n")
+            "FROM ubuntu:26.04\n")
         # The image build is not part of these tests; only the exec
         # behavior of run_container is exercised, so build_container is
         # stubbed out.
@@ -916,7 +916,7 @@ class TestContainerName:
         config_dir.mkdir()
         container_file = config_dir / "Containerfile"
         container_file.write_text(
-            "FROM localhost/dev-isolator-ubuntu:26.04\n")
+            "FROM ubuntu:26.04\n")
         # The image build is not part of these tests; build_container is
         # stubbed so only the container naming is exercised.
         monkeypatch.setattr(
@@ -1038,7 +1038,7 @@ class TestCleanRemovesMatchingContainers:
         config_dir.mkdir()
         container_file = config_dir / "Containerfile"
         container_file.write_text(
-            "FROM localhost/dev-isolator-ubuntu:26.04\n")
+            "FROM ubuntu:26.04\n")
         # The image build is not part of these tests; only the container
         # cleanup is exercised.
         config_file = config_dir / "config.yaml"
@@ -1194,11 +1194,10 @@ class TestCleanRemovesMatchingContainers:
         assert container.events == [("stop", 10), ("remove",)]
 
 
-class TestInitBaseNormalization:
-    """di init normalizes the --base value by stripping an optional
-    ``localhost/dev-isolator-``/``dev-isolator-`` prefix before matching
-    it against the bundled base images, so the generated Containerfile's
-    FROM never ends up with a doubled prefix."""
+class TestInitBase:
+    """di init matches the ``--base`` value exactly against the
+    bundled base images (the ``DI_BASE`` values of the bundled base
+    Containerfiles)."""
 
     def _init_from(self, monkeypatch, tmp_path: Path, base_args):
         """Run ``di init`` with the given ``--base`` arguments in
@@ -1209,33 +1208,26 @@ class TestInitBaseNormalization:
         containerfile = (tmp_path / ".devisolator" / "Containerfile")
         return containerfile.read_text(encoding="utf-8").splitlines()[0]
 
-    def test_default_base_is_normalized(self, monkeypatch, tmp_path: Path):
-        """The default base (localhost/dev-isolator-ubuntu:26.04) is
-        stripped to ubuntu:26.04."""
+    def test_default_base(self, monkeypatch, tmp_path: Path):
+        """Without ``--base`` the default base ubuntu:26.04 is used."""
         assert self._init_from(monkeypatch, tmp_path, []) \
             == "FROM ubuntu:26.04"
 
-    def test_dev_isolator_prefix_is_stripped(
-            self, monkeypatch, tmp_path: Path):
-        """A ``dev-isolator-`` prefix is stripped before matching."""
-        assert self._init_from(
-            monkeypatch, tmp_path, ["--base", "dev-isolator-ubuntu:26.04"]) \
-            == "FROM ubuntu:26.04"
-
-    def test_localhost_prefix_is_stripped(
-            self, monkeypatch, tmp_path: Path):
-        """A ``localhost/dev-isolator-`` prefix is stripped before
-        matching."""
-        assert self._init_from(
-            monkeypatch, tmp_path,
-            ["--base", "localhost/dev-isolator-ubuntu:24.04"]) \
-            == "FROM ubuntu:24.04"
-
     def test_plain_name_is_kept(self, monkeypatch, tmp_path: Path):
-        """A plain base name without prefix is used as-is."""
+        """A plain base name is used as-is."""
         assert self._init_from(
             monkeypatch, tmp_path, ["--base", "ubuntu:26.04"]) \
             == "FROM ubuntu:26.04"
+
+    def test_prefixed_base_is_unknown(self, monkeypatch, tmp_path: Path):
+        """A base name with a ``dev-isolator-`` or
+        ``localhost/dev-isolator-`` prefix matches no bundled base
+        image and aborts with an error."""
+        monkeypatch.chdir(tmp_path)
+        for base in ("dev-isolator-ubuntu:26.04",
+                     "localhost/dev-isolator-ubuntu:24.04"):
+            with pytest.raises(RuntimeError, match="unknown"):
+                init_project(parse_args(["init", "--base", base]))
 
     def test_unknown_base_raises(self, monkeypatch, tmp_path: Path):
         """An unknown base image aborts with an error and nothing is

@@ -347,8 +347,7 @@ class ContainerDefintion:
 
         A image counts as dev-isolator image, when one of its tags
         names the ``IMAGE_PREFIX`` repository (the tag with the
-        slug), for example ``dev-isolator:my-project`` or
-        ``localhost/dev-isolator:my-project``.
+        slug), for example ``dev-isolator:my-project``.
         """
         return any(
             tag.partition("@")[0].rsplit("/", 1)[-1].rsplit(":", 1)[0]
@@ -365,7 +364,7 @@ class ContainerDefintion:
         the ``dev-isolator:<slug>`` repository of the current path,
         for example ``dev-isolator:my-project``
         or ``dev-isolator:my-project--default`` (optionally prefixed by
-        a registry such as ``localhost/``). A different project whose
+        a registry). A different project whose
         slug only shares a prefix (e.g. ``my-project-2``) does not
         match.
         """

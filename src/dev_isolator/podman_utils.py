@@ -29,8 +29,8 @@ def replace_from_images(content: str, new_image: str) -> str:
     every ``FROM`` instruction's image spec and replaces it with
     ``new_image``; tags, digests and ``AS <alias>`` parts of the
     instruction are preserved (only the image itself is replaced, so
-    ``FROM ubuntu:26.04`` becomes e.g. ``FROM
-    localhost/dev-isolator-ubuntu:26.04-something``).
+    ``FROM ubuntu:26.04`` becomes e.g.
+    ``FROM dev-isolator-ubuntu:26.04-something``).
 
     :param content: The Containerfile content to modify.
     :param new_image: The image spec to put in place of each
