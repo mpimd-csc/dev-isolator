@@ -18,6 +18,7 @@ python:
   stage: build
   image: gitlab.mpi-magdeburg.mpg.de/ci-images/python-images/${PYTHON_VERSION}:resolute
   script:
+    - pip install pytest
     - pip install -e .
     - pytest
 
