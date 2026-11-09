@@ -1,5 +1,17 @@
 ## Usage
 
+## Contents
+
+- [Command line overview](#command-line-overview)
+- [`init`](#init)
+- [`build`](#build)
+- [`shell`](#shell)
+- [`run`, `opencode`, `claude`](#run-opencode-claude)
+- [`clean`](#clean)
+- [`list-base`](#list-base)
+- [Discovery of the project directory](#discovery-of-the-project-directory)
+  - [`--config`: selecting a sub-configuration](#--config-selecting-a-sub-configuration)
+
 ### Command line overview
 
 ```

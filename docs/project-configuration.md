@@ -1,5 +1,10 @@
 ## Project configuration
 
+## Contents
+
+- [Addon configuration (`config.<addon>.yaml`)](#addon-configuration-configaddonyaml)
+- [Run arguments (`run_arguments`)](#run-arguments-run_arguments)
+
 The configuration of a containerized dev environment lives in the `.devisolator`
 directory of your project:
 

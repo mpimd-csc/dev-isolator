@@ -1,5 +1,13 @@
 ## Base images
 
+## Contents
+
+- [What a project `Containerfile`'s `FROM` references](#what-a-project-containerfiles-from-references)
+- [Where a base image comes from](#where-a-base-image-comes-from)
+- [What goes into the base image, what goes into the project image](#what-goes-into-the-base-image-what-goes-into-the-project-image)
+- [Base image cleanup](#base-image-cleanup)
+- [Bundle base images and addons](#bundle-base-images-and-addons)
+
 This section explains the base image level, on which every project image is
 built; the project level is described in
 [Project configuration](project-configuration.md#project-configuration).

@@ -3,52 +3,16 @@
 `dev-isolator` is a command line tool that manages a per-project,
 [podman](https://podman.io/) based development environment.
 
-**Requirements:**
+## Licensing
 
-- Linux with a working podman installation.
-- Python 3.10 or later.
-- Python dependencies:
-  - [`podman`](https://podman-py.readthedocs.io/en/latest/)
-  - [`pyyaml`](https://pypi.org/project/PyYAML/)
-  - [`jinja2`](https://jinja.palletsprojects.com/en/stable/)
-  - [`tree-sitter`](https://github.com/tree-sitter/tree-sitter) and
-    [`tree-sitter-containerfile`](https://github.com/wharflab/tree-sitter-containerfile/)
-  - [`pytest`](https://docs.pytest.org/en/stable/), only used by the test-suite
-    (but currently installed with dev-isolator as a regular dependency)
+Copyright (C) 2026 Martin Köhler
 
-Both `dev-isolator` and `di` (a short alias) start the tool.
+`dev-isolator` is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version (GPL-3.0-or-later).
 
-## Table of Contents
-
-- [Installation](#installation)
-- [Usage](docs/usage.md#usage)
-  - [Command line overview](docs/usage.md#command-line-overview)
-  - [`init`](docs/usage.md#init)
-  - [`build`](docs/usage.md#build)
-  - [`shell`](docs/usage.md#shell)
-  - [`run`, `opencode`, `claude`](docs/usage.md#run-opencode-claude)
-  - [`clean`](docs/usage.md#clean)
-  - [`list-base`](docs/usage.md#list-base)
-  - [Discovery of the project directory](docs/usage.md#discovery-of-the-project-directory)
-- [Sub-configurations (`--config`)](docs/sub-configurations.md#sub-configurations---config)
-  - [What a sub-configuration overrides](docs/sub-configurations.md#what-a-sub-configuration-overrides)
-  - [Naming: every sub-configuration gets its own image](docs/sub-configurations.md#naming-every-sub-configuration-gets-its-own-image)
-  - [Example: a project with a `gpu` sub-configuration](docs/sub-configurations.md#example-a-project-with-a-gpu-sub-configuration)
-- [Project configuration](docs/project-configuration.md#project-configuration)
-  - [Addon configuration (`config.<addon>.yaml`)](docs/project-configuration.md#addon-configuration-configaddonyaml)
-  - [Run arguments (`run_arguments`)](docs/project-configuration.md#run-arguments-run_arguments)
-- [Base images](docs/base-images.md#base-images)
-  - [What a project `Containerfile`'s `FROM` references](docs/base-images.md#what-a-project-containerfiles-from-references)
-  - [Where a base image comes from](docs/base-images.md#where-a-base-image-comes-from)
-  - [What goes into the base image, what goes into the project image](docs/base-images.md#what-goes-into-the-base-image-what-goes-into-the-project-image)
-  - [Base image cleanup](docs/base-images.md#base-image-cleanup)
-  - [Bundle base images and addons](docs/base-images.md#bundle-base-images-and-addons)
-- [Typical workflow](#typical-workflow)
-- [Examples: a `.devisolator` folder](#examples-a-devisolator-folder)
-  - [What gets built](#what-gets-built)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
-- [Licensing](#licensing)
+See [LICENSE](LICENSE) for details.
 
 ## Installation
 
@@ -79,39 +43,70 @@ Both `dev-isolator` and `di` end up on your `PATH` this way.
 
 Run the test suite with `pytest`.
 
-### Typical workflow
+### Requirements 
 
-```bash
-cd /home/user/projects/my-project
+- Linux with a working podman installation.
+- Python 3.10 or later.
+- Python dependencies:
+  - [`podman`](https://podman-py.readthedocs.io/en/latest/)
+  - [`pyyaml`](https://pypi.org/project/PyYAML/)
+  - [`jinja2`](https://jinja.palletsprojects.com/en/stable/)
+  - [`tree-sitter`](https://github.com/tree-sitter/tree-sitter) and
+    [`tree-sitter-containerfile`](https://github.com/wharflab/tree-sitter-containerfile/)
+  - [`pytest`](https://docs.pytest.org/en/stable/), only used by the test-suite
+    (but currently installed with dev-isolator as a regular dependency)
 
-# Create .devisolator/ with a Containerfile and config.yaml
-# (base the Containerfile on ubuntu:24.04):
-dev-isolator init -b ubuntu:24.04
 
-cat >> .devisolator/Containerfile <<'EOF'
-RUN apt-get update && apt-get install --yes build-essential python3-pip python3-venv
-EOF
-echo "addons: [opencode]" >> .devisolator/config.yaml
+## Quickstart 
 
-dev-isolator build          # builds the shared base image (once), then
-                            # dev-isolator:home-user-projects-my-project--default
-dev-isolator                # open a bash inside the container
-dev-isolator run make test  # or run a single command
-dev-isolator clean          # remove the image again (the base image stays)
+Using the default config just change to the workspace of your project and 
+run 
+```bash 
+di 
 ```
+After the images are built, you get a shell in an isolated Ubuntu 26.04 
+environment, with a minimal developement and Python toolset installed. Your 
+current directory is available in `/workspace`. 
 
-The same setup can also be created by hand: create the `.devisolator` folder in
-the project root and write the files yourself:
-
-```bash
-cd /home/user/projects/my-project
-mkdir -p .devisolator
-cat > .devisolator/Containerfile <<'EOF'
-FROM ubuntu:24.04
-RUN apt-get update && apt-get install --yes build-essential python3-pip python3-venv
-EOF
-echo "addons: [opencode]" > .devisolator/config.yaml
+If you want to run [Opencode](https://opencode.ai/) in the current directory, just run 
+```bash 
+di opencode
 ```
+and it sets up an Opencode session in the current directory, but isolated from 
+your host. In addition to the current working directory, it gets access your 
+Opencode configuration from `~/.config/opencode`.
+
+In the same way, running 
+```
+di claude
+```
+gives you access to the Claude CLI agent. 
+
+### Customizing the Environemnt
+
+If you need to environment, e.g. using `ubuntu:24.04` instead of `ubuntu:26.04`
+you can initialize your own project configuration using 
+```bash 
+di init -b ubuntu:24.04
+```
+and edit `.devisolator/Containerfile` to your needs. Afterwards, running 
+```bash 
+di 
+``` 
+will rebuild your container. 
+
+Futher options and usage information are available in the [documentation](#documentation)
+
+## Documentation
+
+Further documentation lives in the `docs/` directory:
+
+- [Usage](./docs/usage.md) — subcommands and command line options
+- [Sub-configurations (`--config`)](./docs/sub-configurations.md)
+- [Project configuration](./docs/project-configuration.md)
+- [Base images](./docs/base-images.md)
+
+
 
 ## Examples: a `.devisolator` folder
 
@@ -152,27 +147,9 @@ For the folder above, dev-isolator builds two images:
 Running `dev-isolator` then mounts `my-project/` at `/workspace` inside a container
 running as your own UID/GID, so files you create stay owned by you.
 
-## Documentation
-
-Further documentation lives in the `docs/` directory:
-
-- [Usage](./docs/usage.md) — subcommands and command line options
-- [Sub-configurations (`--config`)](./docs/sub-configurations.md)
-- [Project configuration](./docs/project-configuration.md)
-- [Base images](./docs/base-images.md)
-
 ## Contributing
 
 Contributions are welcome from everyone; please follow the guide in
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Licensing
 
-Copyright (C) 2026 Martin Köhler
-
-`dev-isolator` is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation, either version 3 of the License, or (at your option) any later
-version (GPL-3.0-or-later).
-
-See [LICENSE](LICENSE) for details.

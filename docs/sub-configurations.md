@@ -1,5 +1,11 @@
 ## Sub-configurations (`--config`)
 
+## Contents
+
+- [What a sub-configuration overrides](#what-a-sub-configuration-overrides)
+- [Naming: every sub-configuration gets its own image](#naming-every-sub-configuration-gets-its-own-image)
+- [Example: a project with a `gpu` sub-configuration](#example-a-project-with-a-gpu-sub-configuration)
+
 Large projects often need more than one container environment — a slim default
 for everyday work and a specialized one for GPU builds or documentation. Each
 variant lives in its own subdirectory of `.devisolator/` and is selected per
