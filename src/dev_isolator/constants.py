@@ -39,6 +39,10 @@ DEV_ISOLATOR_DIR = ".devisolator"
 #: environment and volumes).
 CONFIG_FILE_NAME = "config.yaml"
 
+#: Required version identifier of ``config.yaml``. Loading a
+#: configuration with a different ``version`` value raises an error.
+CONFIG_VERSION = "0.1"
+
 #: File name prefix and suffix of a per-addon configuration file:
 #: ``config.<addon_name>.yaml``.
 ADDON_CONFIG_FILE_PREFIX = "config."

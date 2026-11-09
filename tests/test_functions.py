@@ -42,7 +42,7 @@ def empty_configuration(tmp_path: Path, addon_search_paths):
     only need the host user block or a plain build.
     """
     config_file = tmp_path / "config.yaml"
-    config_file.write_text("")
+    config_file.write_text("version: 0.1\n")
     return Configuration(config_file, addon_search_paths)
 
 
@@ -99,7 +99,7 @@ class TestMergedContainerfile:
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
+        (config_dir / "config.yaml").write_text("version: 0.1\naddons:\n  - mine\n")
 
         config = make_configuration(config_dir / "config.yaml",
                                     [config_dir, BUNDLED_DIR])
@@ -135,7 +135,7 @@ class TestMergedContainerfile:
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
+        (config_dir / "config.yaml").write_text("version: 0.1\naddons:\n  - mine\n")
 
         config = make_configuration(config_dir / "config.yaml",
                                     [config_dir, BUNDLED_DIR])
@@ -172,7 +172,7 @@ class TestMergedContainerfile:
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("")
+        (config_dir / "config.yaml").write_text("version: 0.1\n")
 
         config = make_configuration(config_dir / "config.yaml",
                                     [config_dir, BUNDLED_DIR])
@@ -208,6 +208,7 @@ class TestMergedContainerfile:
             "RUN echo user={{ username }} uid={{ uid }} "
             "home={{ home_dir }}\n")
         (config_dir / "config.yaml").write_text(
+            "version: 0.1\n"
             "addons:\n  - rendered\n")
 
         config = make_configuration(config_dir / "config.yaml",
@@ -316,7 +317,7 @@ class TestBuildTraceOutput:
             "FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
         (config_dir / "config.yaml").write_text(
-            "addons:\n  - mine\n")
+            "version: 0.1\naddons:\n  - mine\n")
         # The base image build is not part of these tests; it is stubbed
         # out to return the (image, image_tag, content_hash) tuple the
         # real build produces, of which only the image tag is used (as
@@ -444,7 +445,7 @@ class TestBaseImageBuild:
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("addons:\n  - mine\n")
+        (config_dir / "config.yaml").write_text("version: 0.1\naddons:\n  - mine\n")
         config = make_configuration(config_dir / "config.yaml",
                                     [config_dir])
         return BaseImage(config)
@@ -761,7 +762,7 @@ class TestRunContainerCommand:
             ContainerDefintion, "build_container",
             lambda self, keep_container_file=False: None)
         config_file = config_dir / "config.yaml"
-        config_file.write_text("")
+        config_file.write_text("version: 0.1\n")
         config = make_configuration(config_file, [config_dir])
         return ContainerDefintion(tmp_path, container_file, config)
 
@@ -923,7 +924,7 @@ class TestContainerName:
             ContainerDefintion, "build_container",
             lambda self, keep_container_file=False: None)
         config_file = config_dir / "config.yaml"
-        config_file.write_text("")
+        config_file.write_text("version: 0.1\n")
         config = make_configuration(config_file, [config_dir])
         return ContainerDefintion(tmp_path, container_file, config)
 
@@ -1042,7 +1043,7 @@ class TestCleanRemovesMatchingContainers:
         # The image build is not part of these tests; only the container
         # cleanup is exercised.
         config_file = config_dir / "config.yaml"
-        config_file.write_text("")
+        config_file.write_text("version: 0.1\n")
         config = make_configuration(config_file, [config_dir])
         return ContainerDefintion(tmp_path, container_file, config)
 

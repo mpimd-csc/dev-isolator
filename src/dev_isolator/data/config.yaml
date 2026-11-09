@@ -1,6 +1,8 @@
 # This is the default config for dev-isolator
 # Users can overwrite it in each project.
 #
+version: 0.1
+
 build:
   # Use the local directory as context. If the directory is large, this takes a while building the image
   # If set to false, a empty temporary directory is used only containing the Containerfile.

@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 from .constants import (ADDON_FILE_PREFIX, ADDON_FILE_SUFFIX,
                         ADDON_CONFIG_FILE_PREFIX, ADDON_CONFIG_FILE_SUFFIX,
-                        DEV_ISOLATOR_DIR)
+                        CONFIG_VERSION, DEV_ISOLATOR_DIR)
 import yaml
 
 from .utils import Verbosity, dprint
@@ -242,6 +242,15 @@ class Configuration:
         if not isinstance(self.yaml_data, dict):
             raise RuntimeError(f"Invalid config file {config_file}: "
                                "expected a mapping with an 'addons' key")
+
+        version = self.yaml_data.get("version")
+        # YAML parses an unquoted "0.1" as a float, so compare the
+        # string form to accept both "0.1" and 0.1 in the config.
+        if version is None or str(version) != CONFIG_VERSION:
+            raise RuntimeError(
+                f"Unsupported config file version in {config_file}: "
+                f"expected {CONFIG_VERSION}, got {version!r}. "
+                "Please update the 'version' key of your config.yaml.")
 
     def enabled_addons(self) -> set[str]:
         """Return the names of the enabled addons.
