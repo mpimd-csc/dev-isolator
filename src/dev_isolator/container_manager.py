@@ -171,6 +171,10 @@ class ContainerDefintion:
             environment |= config_environment
             volumes |= config_volumes
 
+            # Additional containers.create() arguments declared
+            # directly in the project's config.yaml.
+            run_arguments = self.config.config_run_arguments()
+
             # Settings requested by the enabled addons.
             addon_environment, addon_volumes = self.config.addon_run_settings()
             environment |= addon_environment
@@ -196,13 +200,10 @@ class ContainerDefintion:
                 # The image's entrypoint may exit immediately; keep
                 # the container alive so shells can exec into it.
                 entrypoint=["sleep", "infinity"],
-                # Run as the same UID/GID as the host user
-                # (podman's --userns=keep-id), so files created in
-                # the /workspace bind mount stay owned by the user.
-                userns_mode="keep-id",
                 environment=environment,
                 volumes=volumes,
                 detach=True,
+                **run_arguments,
             )
             dprint(Verbosity.INFO,
                    f"Created container {container_name} "

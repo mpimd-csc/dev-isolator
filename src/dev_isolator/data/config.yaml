@@ -14,3 +14,96 @@ build:
 addons:
   - opencode
   - claude
+
+# Additional arguments passed to podman's containers.create() when
+# generating the container (only the most common ones are supported,
+# see SUPPORTED_RUN_ARGUMENTS in dev_isolator/config.py).
+# Uncomment and adjust the entries you need:
+run_arguments: {}
+
+#   # Optional hostname for the container
+#   # hostname: my-dev-container
+#
+#   # Working directory inside the container
+#   # working_dir: /workspace
+#
+#   # Allocate a pseudo-TTY
+#   # tty: true
+#
+#   # Keep STDIN open even if not attached
+#   # stdin_open: true
+#
+#   # Give extended privileges to the container (e.g. needed for docker-in-docker)
+#   # privileged: false
+#
+#   # Username or UID to run commands as inside the container
+#   # user: "1000:1000"
+#
+#   # Usermode in the Namespace
+#   # userns_mode: keep-id
+#
+#   # Ports to bind inside the container; keys are the container ports,
+#   # values the corresponding host ports
+#   # ports:
+#   #   2222/tcp: 3333
+#
+#   # Ports of the container published to the host
+#   # publish_all_ports: false
+#
+#   # Memory limit, e.g. 1073741824 (bytes) or a string with a unit ("128m", "1g")
+#   # mem_limit: 1g
+#
+#   # CPU quota in units of 1e-9 CPUs (e.g. 2000000000 = 2 CPUs)
+#   # nano_cpus: 2000000000
+#
+#   # CPUs in which to allow execution ("0-3" or a list like "0,1")
+#   # cpuset_cpus: 0-3
+#
+#   # Expose host devices to the container, in the form
+#   # <path_on_host>:<path_in_container>:<cgroup_permissions>
+#   # devices:
+#   #   - /dev/sda:/dev/xvda:rwm
+#
+#   # Add kernel capabilities
+#   # cap_add:
+#   #   - SYS_ADMIN
+#   #   - MKNOD
+#
+#   # Drop kernel capabilities
+#   # cap_drop:
+#   #   - NET_ADMIN
+#
+#   # Custom DNS servers
+#   # dns:
+#   #   - 8.8.8.8
+#
+#   # Additional hostnames to resolve inside the container, mapping
+#   # hostname to IP address
+#   # extra_hosts:
+#   #   myhost: 192.168.1.10
+#
+#   # Network mode: "bridge", "none", "host" or "container:<name|id>"
+#   # network_mode: host
+#
+#   # Size of /dev/shm
+#   # shm_size: 1G
+#
+#   # Mount the container's root filesystem as read only
+#   # read_only: false
+#
+#   # Name-value labels for the container
+#   # labels:
+#   #   label1: value1
+#
+#   # Kernel parameters to set inside the container
+#   # sysctls:
+#   #   net.ipv4.ip_forward: "1"
+#
+#   # Restart the container when it exits (Name: "on-failure" or "always",
+#   # MaximumRetryCount: restarts on failure)
+#   # restart_policy:
+#   #   Name: on-failure
+#   #   MaximumRetryCount: 5
+#
+#   # Automatically remove the container when its process exits
+#   # auto_remove: false

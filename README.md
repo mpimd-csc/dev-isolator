@@ -169,8 +169,10 @@ Opens an interactive shell inside the container:
    user's UID/GID, so files created in the `/workspace` bind mount stay owned by
    you.
 3. The current working directory is mounted read-write at `/workspace`, plus the
-   environment variables and volumes declared in `config.yaml` and requested by
-   the enabled addons (see [Project configuration](#project-configuration)).
+   environment variables, volumes and `run_arguments` declared in `config.yaml`
+   and requested by the enabled addons (see
+   [Project configuration](#project-configuration) and
+   [Run arguments (`run_arguments`)](#run-arguments-run_arguments)).
 4. Your terminal attaches to a `podman exec -it` session running the shell
    (`bash` by default); leave the session with `exit` or Ctrl-D.
 5. After the session ends, the container is stopped and removed.
@@ -357,8 +359,9 @@ directory of your project:
 
 - `Containerfile`: the base image definition (see [Base images](#base-images)).
 - `config.yaml`: the enabled addons and container settings. Besides `addons`, it
-  can also declare `environment` variables, additional `volumes` and build
-  options:
+  can also declare `environment` variables, additional `volumes`, build options
+  and `run_arguments` for the container (see
+  [Run arguments (`run_arguments`)](#run-arguments-run_arguments)):
 
   ```yaml
   addons:
@@ -443,6 +446,69 @@ volumes:
      unset variables are left unchanged.
 
 Messages about skipped entries are only shown at the highest verbosity (`-vvv`).
+
+#### Run arguments (`run_arguments`)
+
+The optional `run_arguments` key of `config.yaml` is a mapping of keyword
+arguments of podman's `containers.create()` to their values; they are passed
+to the container when it is created:
+
+```yaml
+run_arguments:
+  # Allocate a pseudo-TTY and keep STDIN open
+  tty: true
+  stdin_open: true
+  # Optional hostname and working directory inside the container
+  hostname: my-dev-container
+  working_dir: /workspace
+  # Resource limits: memory (bytes or "128m"/"1g") and CPU quota
+  # in units of 1e-9 CPUs (2000000000 = 2 CPUs)
+  mem_limit: 1g
+  nano_cpus: 2000000000
+  # Restrict execution to specific CPUs ("0-3" or "0,1")
+  cpuset_cpus: 0-3
+  # Expose host devices: <host>:<container>:<permissions>
+  devices:
+    - /dev/sda:/dev/xvda:rwm
+  # Add or drop kernel capabilities
+  cap_add:
+    - SYS_ADMIN
+    - MKNOD
+  # Network mode: "bridge", "none", "host" or "container:<name|id>"
+  network_mode: bridge
+  # Port bindings: keys are the container ports, values the host ports
+  ports:
+    2222/tcp: 3333
+  # Kernel parameters, DNS servers, extra hostnames, labels, ...
+  sysctls:
+    net.ipv4.ip_forward: "1"
+  dns:
+    - 8.8.8.8
+  extra_hosts:
+    myhost: 192.168.1.10
+  labels:
+    my-label: my-value
+  # Size of /dev/shm
+  shm_size: 1G
+  # Restart behaviour on exit
+  restart_policy:
+    Name: on-failure
+    MaximumRetryCount: 5
+```
+
+Only the most common `containers.create()` arguments are supported; the full
+list is in `SUPPORTED_RUN_ARGUMENTS` in `src/dev_isolator/config.py`. An
+unsupported key, or one of the arguments dev-isolator manages itself (`image`,
+`command`, `name`, `entrypoint`, `environment`, `volumes`, `detach`), raises
+an error when the container is created. See the commented example in the
+bundled [`config.yaml`](src/dev_isolator/data/config.yaml) for all supported
+entries.
+
+Defaults: `userns_mode` defaults to `keep-id` — the container runs with the
+same UID/GID as the host user, so files created in the `/workspace` bind
+mount stay owned by the user — and `network_mode` defaults to `host`. Both
+can be overridden via `run_arguments`. An empty or missing `run_arguments`
+key means the defaults are used.
 
 ### Base images
 

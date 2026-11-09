@@ -4,5 +4,5 @@
 FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND noninteractive
 
-RUN apt-get update && apt install -y cmake build-essential git curl wget
+RUN apt-get update && apt install -y cmake build-essential git curl wget iproute2
 

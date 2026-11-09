@@ -30,6 +30,63 @@ ENV_REFERENCE_PATTERN = re.compile(r"ENV\[(\w+)\]")
 # Sentinel marking a not-yet-computed cached value.
 _UNSET = object()
 
+#: Keyword arguments of the podman bindings' ``containers.create()``
+#: (see https://podman-py.readthedocs.io/en/latest/
+#: podman.domain.containers_create.html) that may be set via the
+#: ``run_arguments`` key of ``config.yaml``. The most common ones:
+SUPPORTED_RUN_ARGUMENTS = frozenset({
+    "auto_remove",        # Remove the container when its process exits.
+    "cap_add",            # Add kernel capabilities,
+                          # e.g. ["SYS_ADMIN", "MKNOD"].
+    "cap_drop",           # Drop kernel capabilities.
+    "cpu_shares",         # CPU shares (relative weight).
+    "cpuset_cpus",        # CPUs in which to allow execution ("0-3", "0,1").
+    "devices",            # Expose host devices,
+                          # e.g. ["/dev/sda:/dev/xvda:rwm"].
+    "dns",                # Custom DNS servers, e.g. ["8.8.8.8"].
+    "dns_search",         # DNS search domains.
+    "extra_hosts",        # Additional hostnames, mapping hostname to IP.
+    "group_add",          # Additional groups the container process runs as.
+    "hostname",           # Optional hostname for the container.
+    "init",               # Run an init that forwards
+                          # signals and reaps processes.
+    "ipc_mode",           # IPC mode for the container.
+    "labels",             # Name-value labels, e.g. {"label1": "value1"}.
+    "mem_limit",          # Memory limit, e.g. 1073741824 or "1g".
+    "mem_reservation",    # Memory soft limit.
+    "memswap_limit",      # Maximum memory + swap the container may consume.
+    "nano_cpus",          # CPU quota in units of 1e-9 CPUs
+                          # (e.g. 2000000000 = 2 CPUs).
+    "network_mode",       # One of "bridge", "none", "host",
+                          # "container:<name|id>".
+    "pid_mode",           # "host" to use the host PID namespace.
+    "ports",              # Ports to bind, e.g. {"2222/tcp": 3333}.
+    "privileged",         # Give extended privileges to the container.
+    "publish_all_ports",  # Publish all exposed ports to the host.
+    "read_only",          # Mount the container's root filesystem read only.
+    "restart_policy",     # Restart on exit,
+                          # e.g. {"Name": "on-failure","MaximumRetryCount": 5}.
+    "security_opt",       # MLS/SELinux label customization,
+                          # e.g. ["label=disable"].
+    "shm_size",           # Size of /dev/shm, e.g. "1G".
+    "stdin_open",         # Keep STDIN open even if not attached.
+    "stop_signal",        # Signal used to stop the container, e.g. "SIGINT".
+    "sysctls",            # Kernel parameters to set,
+                          # e.g. {"net.ipv4.ip_forward": "1"}.
+    "tty",                # Allocate a pseudo-TTY.
+    "user",               # Username or UID to run commands as inside
+                          # the container.
+    "userns_mode",        # Usermode for the network, default
+    "working_dir",        # Working directory inside the container.
+})
+
+#: Keyword arguments of ``containers.create()`` that dev-isolator
+#: controls itself; they cannot be overridden via ``run_arguments``.
+RESERVED_RUN_ARGUMENTS = frozenset({
+    "image", "command", "name", "entrypoint",
+    "environment", "volumes", "detach",
+})
+
 
 def addon_name(path: Path) -> str:
     """Return the name of an addon file (``addon.<name>.jinja2``).
@@ -364,6 +421,54 @@ class Configuration:
         :raises RuntimeError: if the ``config.yaml`` is invalid.
         """
         return self._get_volumes(self.yaml_data)
+
+    def config_run_arguments(self) -> dict:
+        """Return the additional container creation arguments declared
+        in the active ``config.yaml``.
+
+        The ``run_arguments`` key is a mapping of keyword argument
+        names of the podman bindings' ``containers.create()`` (see
+        https://podman-py.readthedocs.io/en/latest/
+        podman.domain.containers_create.html) to their values; only
+        the most common arguments are supported (see
+        :data:`SUPPORTED_RUN_ARGUMENTS`).
+
+        :returns: A dict mapping ``containers.create()`` keyword
+            argument names to their values, or ``{}`` when none are
+            declared.
+        :raises RuntimeError: if the ``config.yaml`` is invalid or
+            contains an unsupported or reserved argument.
+        """
+        arguments = self.yaml_data.get("run_arguments", None)
+        if arguments is None:
+            return {}
+        if not isinstance(arguments, dict):
+            raise RuntimeError(f"Invalid config file {self.config_file}: "
+                               "'run_arguments' must be a mapping of "
+                               "containers.create() arguments to values")
+        for key, value in arguments.items():
+            if not isinstance(key, str):
+                raise RuntimeError(
+                    f"Invalid config file {self.config_file}: "
+                    f"'run_arguments' key '{key}' must be a string")
+            if key in RESERVED_RUN_ARGUMENTS:
+                raise RuntimeError(
+                    f"Invalid config file {self.config_file}: "
+                    f"'run_arguments' key '{key}' is managed by "
+                    "dev-isolator and cannot be overridden")
+            if key not in SUPPORTED_RUN_ARGUMENTS:
+                raise RuntimeError(
+                    f"Invalid config file {self.config_file}: "
+                    f"'run_arguments' key '{key}' is not supported "
+                    "(see SUPPORTED_RUN_ARGUMENTS in "
+                    "dev_isolator/config.py)")
+            dprint(Verbosity.TRACE, f"Run argument {key}: {value}")
+
+        if "userns_mode" not in arguments:
+            arguments["userns_mode"] = "keep-id"
+        if "network_mode" not in arguments:
+            arguments["network_mode"] = "host"
+        return dict(arguments)
 
     def build_get_local_context(self):
         build = self.yaml_data.get("build", {})
