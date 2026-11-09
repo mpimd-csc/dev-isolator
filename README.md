@@ -46,6 +46,7 @@ Both `dev-isolator` and `di` (a short alias) start the tool.
 - [Typical workflow](#typical-workflow)
 - [Examples: a `.devisolator` folder](#examples-a-devisolator-folder)
   - [What gets built](#what-gets-built)
+- [Documentation](#documentation)
 - [Contributing](#contributing)
 - [Licensing](#licensing)
 
@@ -150,6 +151,15 @@ For the folder above, dev-isolator builds two images:
 
 Running `dev-isolator` then mounts `my-project/` at `/workspace` inside a container
 running as your own UID/GID, so files you create stay owned by you.
+
+## Documentation
+
+Further documentation lives in the `docs/` directory:
+
+- [Usage](./docs/usage.md) — subcommands and command line options
+- [Sub-configurations (`--config`)](./docs/sub-configurations.md)
+- [Project configuration](./docs/project-configuration.md)
+- [Base images](./docs/base-images.md)
 
 ## Contributing
 
