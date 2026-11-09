@@ -21,6 +21,10 @@ The sub commands are:
     no subcommand is given).
 ``run <command> ...``
     Run an arbitrary command inside the container.
+``target <name> [args...]``
+    Run a predefined target command from the ``targets`` section of
+    ``config.yaml`` inside the container, passing the arguments
+    following the target name to it.
 ``opencode`` / ``claude``
     Run the respective AI coding tool inside the container.
 ``clean``
@@ -37,6 +41,18 @@ The ``--shell/-s`` option, given before the sub command, selects the
 shell used by ``shell`` and by ``run``/``opencode``/``claude`` when they
 start an interactive shell.
 
+The ``target`` sub command takes only positional arguments: the first
+one names a target from the ``targets`` section of ``config.yaml``,
+whose command is a jinja2 template in which the extra arguments are
+available as ``args[0]``, ``args[1]``, ... and as ``all_args`` (all of
+them joined with spaces).  A placeholder marked with the ``optional``
+filter is only used when the argument was given on the command line;
+the token holding it (and a preceding option token) is dropped
+otherwise.  The command may be a single command line (a string) or a
+script given line by line in a list; the script lines run line by line
+in one shell session inside the container, which stops at the first
+failing line.
+
 Copyright (C) 2026 Martin Köhler
 
 This program comes with ABSOLUTELY NO WARRANTY.
@@ -48,7 +64,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 import argparse
 import sys
 import os
+import shlex
 import shutil
+
+import jinja2
 
 from textwrap import dedent
 from .container_manager import ContainerDefintion
@@ -62,6 +81,11 @@ from .config import Configuration
 
 DEFAULT_SHELL = "bash"
 
+#: Sentinel returned by the ``optional`` jinja2 filter for an argument
+#: that was not given on the command line; after rendering, every token
+#: still containing it is dropped from the target's command.
+_OPTIONAL_UNSET = "\x00dev-isolator-unset-optional\x00"
+
 
 def create_parser() -> argparse.ArgumentParser:
     """Create and configure the command line argument parser.
@@ -69,10 +93,12 @@ def create_parser() -> argparse.ArgumentParser:
     Defines the global options (``--verbose/-v``, ``--shell/-s`` and
     ``--config/-c``) on the top level parser and one subparser per sub
     command.  The
-    ``opencode``, ``claude`` and ``run`` parsers disable their own help
-    handling and define no arguments, so that unknown arguments following
-    them are returned verbatim in the remainder of ``parse_known_args``
-    and passed through to the command inside the container.
+    ``opencode``, ``claude``, ``run`` and ``target`` parsers disable
+    their own help handling and define no arguments, so that unknown
+    arguments following them are returned verbatim in the remainder of
+    ``parse_known_args`` and passed through to the command inside the
+    container (for ``target``, the first remainder token names the
+    target to run).
     """
     description = """\
         Manage an isolated, podman based development environment
@@ -92,6 +118,8 @@ examples:
   dev-isolator --shell zsh        open a zsh in the container
   dev-isolator                    open an interactive shell in the container
   dev-isolator run make test      run "make test" inside the container
+  dev-isolator target test        run the "test" target from the
+                                  "targets" section of config.yaml
   dev-isolator opencode           run opencode inside the container
   dev-isolator clean --all        remove every dev-isolator image
   dev-isolator list-base          list the available base image definitions
@@ -232,6 +260,16 @@ The dev-isolator command can also be abbreviated by `di`
         )
 
     subparsers.add_parser(
+        "target",
+        add_help=False,
+        help="Run a predefined target command from the 'targets' section "
+             "of config.yaml inside the container.  Takes only positional "
+             "arguments: the first one names the target, all following "
+             "ones are passed to the target's command "
+             "(for example ``target test -k foo``).",
+        )
+
+    subparsers.add_parser(
         "help",
         help="Show this help message and exit.",
         description="Show the dev-isolator help message and exit.",
@@ -289,14 +327,15 @@ def parse_args(argv=None) -> argparse.Namespace:
     must precede the sub command; unknown options before the sub command
     are rejected.
 
-    The ``opencode``, ``claude`` and ``run`` sub commands disable their
-    own help handling and define no arguments, so every token following
-    them is returned verbatim in the remainder by ``parse_known_args``
-    and stored on the ``opencode_args``, ``claude_args`` and
-    ``run_args`` attributes.  This keeps options of the command inside
-    the container (for example ``opencode --port 4096``) from clashing
-    with those of dev-isolator.  Without an explicit subcommand, behave
-    as if ``shell`` was requested with the default shell.
+    The ``opencode``, ``claude``, ``run`` and ``target`` sub commands
+    disable their own help handling and define no arguments, so every
+    token following them is returned verbatim in the remainder by
+    ``parse_known_args`` and stored on the ``opencode_args``,
+    ``claude_args``, ``run_args`` and ``target_args`` attributes.  This
+    keeps options of the command inside the container (for example
+    ``opencode --port 4096``) from clashing with those of dev-isolator.
+    Without an explicit subcommand, behave as if ``shell`` was requested
+    with the default shell.
     """
     if argv is None:
         argv = sys.argv[1:]
@@ -315,6 +354,8 @@ def parse_args(argv=None) -> argparse.Namespace:
         args.opencode_args = extras
     elif args.command == "claude":
         args.claude_args = extras
+    elif args.command == "target":
+        args.target_args = extras
     return args
 
 
@@ -467,9 +508,9 @@ def in_container_command(definition, command, remainder) -> int:
     """Run ``command`` with ``remainder`` as its arguments inside the
     container of the current project.
 
-    Used by the ``opencode``, ``claude`` and ``run`` sub commands,
-    which pass extra arguments through without parsing them.  Returns
-    the exit status of the container, or 1 on error.
+    Used by the ``opencode``, ``claude``, ``run`` and ``target`` sub
+    commands, which pass extra arguments through without parsing them.
+    Returns the exit status of the container, or 1 on error.
     """
     try:
         return definition.run_container(
@@ -477,6 +518,183 @@ def in_container_command(definition, command, remainder) -> int:
     except Exception as e:
         print(f"An error occured: {e}", file=sys.stderr)
         return 1
+
+
+def _optional_filter(value):
+    """Return the sentinel marking an unset optional argument.
+
+    Used as the ``optional`` jinja2 filter of the ``target`` sub
+    command: a placeholder written as ``{{ args[0] | optional }}``
+    renders normally when ``args[0]`` was given on the command line;
+    when it was not (the value is undefined or empty), the sentinel is
+    returned instead and the token holding the placeholder is dropped
+    from the command afterwards (see :func:`_drop_unset_optional`).
+    """
+    if value is None or isinstance(value, jinja2.Undefined) or value == "":
+        return _OPTIONAL_UNSET
+    return value
+
+
+def _target_jinja_environment() -> jinja2.Environment:
+    """Return the jinja2 environment for the ``target`` sub command.
+
+    Like the addon template environment (see
+    :func:`dev_isolator.base_image._jinja_environment`), it does not
+    escape the rendered command (shell context, not HTML), but it uses
+    strict undefined values, so a mandatory ``{{ args[0] }}`` without
+    the ``optional`` filter aborts with an error instead of rendering
+    as an empty string.  The ``optional`` filter marks arguments that
+    may be omitted (see :func:`_optional_filter`).
+    """
+    environment = jinja2.Environment(
+        autoescape=False,
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+    )
+    environment.filters["optional"] = _optional_filter
+    return environment
+
+
+def _drop_unset_optional(tokens: list[str]) -> list[str]:
+    """Drop the tokens of a rendered target command that hold an unset
+       optional argument.
+
+    A token still containing the sentinel of the ``optional`` filter
+    (see :func:`_optional_filter`) is dropped; when the token itself is
+    not an option but the token before it is one, that preceding
+    option is dropped as well, so an optional ``-k <value>`` pair
+    disappears as a whole.
+
+    :param tokens: The rendered command tokens.
+    :returns: The tokens without the unset optional ones.
+    """
+    result: list[str] = []
+    for token in tokens:
+        if _OPTIONAL_UNSET in token:
+            # An option token holding the unset placeholder itself
+            # (for example ``-k={{ args[0] | optional }}``) is dropped
+            # alone; a plain value token also drops its preceding
+            # option.
+            if (not token.startswith("-") and result
+                    and result[-1].startswith("-")):
+                result.pop()
+            continue
+        result.append(token)
+    return result
+
+
+def render_target_lines(template: str | list[str],
+                        extra_args: list[str]) -> list[list[str]]:
+    """Render the command template of a target into script lines.
+
+    The template context provides the extra arguments given after the
+    target name on the command line as ``args`` (the list of the
+    arguments) and ``all_args`` (all of them joined with spaces).  In
+    the string form, the whole template is rendered as one command line
+    and split like a shell would (``shlex.split``); in the list form,
+    every entry is one line of a script (a whole command line) and is
+    rendered and split on its own.  Tokens holding an unset optional
+    argument (see :func:`_drop_unset_optional`) are dropped from every
+    line; a line that becomes empty afterwards is skipped.
+
+    :param template: The target's command template (a string or a list
+        of strings, as returned by
+        :meth:`dev_isolator.config.Configuration.config_targets`).
+    :param extra_args: The arguments given after the target name on
+        the command line.
+    :returns: The rendered script lines, each a list of command
+        tokens.
+    :raises RuntimeError: if the template references a mandatory
+        argument (a ``{{ args[n] }}`` placeholder without the
+        ``optional`` filter) that was not given.
+    """
+    environment = _target_jinja_environment()
+    context = {"args": list(extra_args),
+               "all_args": " ".join(extra_args)}
+
+    if isinstance(template, str):
+        # String form: one template for the whole command line.
+        try:
+            text = environment.from_string(template).render(**context)
+        except jinja2.UndefinedError as e:
+            raise RuntimeError(
+                f"Invalid target command '{template}': {e}. A mandatory "
+                "argument ({{ args[n] }} without the 'optional' filter) "
+                "was not given on the command line; mark it optional in "
+                "config.yaml with '{{ args[n] | optional }}' if it may "
+                "be omitted.") from e
+        tokens = _drop_unset_optional(shlex.split(text))
+        return [tokens] if tokens else []
+
+    # List form: every entry is one line of a script.
+    lines: list[list[str]] = []
+    for entry in template:
+        try:
+            text = environment.from_string(entry).render(**context)
+        except jinja2.UndefinedError as e:
+            raise RuntimeError(
+                f"Invalid target command {template}: {e}. A mandatory "
+                "argument ({{ args[n] }} without the 'optional' filter) "
+                "was not given on the command line; mark it optional in "
+                "config.yaml with '{{ args[n] | optional }}' if it may "
+                "be omitted.") from e
+        tokens = _drop_unset_optional(shlex.split(text))
+        if tokens:
+            lines.append(tokens)
+    return lines
+
+
+def target(definition, args) -> int:
+    """Handle the ``target`` sub command.
+
+    Look up the target named by the first positional argument
+    (``args.target_args[0]``) in the ``targets`` section of the active
+    ``config.yaml`` and run its command inside the container of the
+    current project, with the remaining positional arguments passed to
+    the command (see :func:`render_target_lines`).  A bit like a
+    predefined ``run``.  Takes only positional arguments.
+
+    A command given as a string (or a single-line list) is executed
+    directly; a multi-line list is a script: its lines run line by line
+    in one shell session (``args.shell -ec script``), which stops at
+    the first failing line.
+
+    :param definition: The container definition of the current project.
+    :param args: The parsed command line arguments (from
+        :func:`parse_args`).
+    :returns: The exit status of the container, or 1 on error.
+    """
+    targets = definition.config.config_targets()
+    if not args.target_args:
+        print("No target given. Available targets: "
+              + (", ".join(sorted(targets)) if targets else "(none, "
+                 "define them in the 'targets' section of config.yaml)"),
+              file=sys.stderr)
+        return 1
+    name, *extra_args = args.target_args
+    if name not in targets:
+        print(f"Unknown target '{name}'. Available targets: "
+              + (", ".join(sorted(targets)) if targets else "(none, "
+                 "define them in the 'targets' section of config.yaml)"),
+              file=sys.stderr)
+        return 1
+    try:
+        lines = render_target_lines(targets[name], extra_args)
+    except RuntimeError as e:
+        print(f"An error occured: {e}", file=sys.stderr)
+        return 1
+    if not lines:
+        print(f"An error occured: target '{name}' rendered an empty "
+              "command.", file=sys.stderr)
+        return 1
+    if len(lines) == 1:
+        command = lines[0]
+        return in_container_command(definition, command[0], command[1:])
+    # Several lines: run the script in one shell session; ``-e`` stops
+    # it at the first failing line.
+    script = "\n".join(" ".join(shlex.quote(token) for token in line)
+                       for line in lines)
+    return in_container_command(definition, args.shell, ["-ec", script])
 
 
 def get_path(config):
@@ -634,6 +852,8 @@ def main_intern() -> int:
                                         args.run_args[1:])
         # Without a command, behave like ``shell``.
         return shell(definition, args)
+    if args.command == "target":
+        return target(definition, args)
     return 0
 
 

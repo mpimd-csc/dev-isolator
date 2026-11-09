@@ -479,6 +479,53 @@ class Configuration:
             arguments["network_mode"] = "host"
         return dict(arguments)
 
+    def config_targets(self) -> dict[str, str | list[str]]:
+        """Return the predefined target commands declared in the
+        active ``config.yaml``.
+
+        The ``targets`` key is a mapping of target names to commands;
+        a command is a jinja2 template string (rendered as a whole
+        command line) or a list of jinja2 template strings (every
+        entry one line of a script, executed line by line).  The extra
+        arguments given on the command line
+        (``dev-isolator target <name> [args...]``) are available in
+        the templates as ``args`` (the list of the extra arguments)
+        and ``all_args`` (all extra arguments joined with spaces); the
+        ``optional`` filter marks an argument that may be omitted (see
+        the ``target`` subcommand in :mod:`dev_isolator.main`).
+
+        :returns: A dict mapping target names to their command
+            templates (a template string or a list of template
+            strings), or ``{}`` when no targets are declared.
+        :raises RuntimeError: if the ``targets`` key is not a mapping
+            of non-empty string names to string or string-list
+            commands.
+        """
+        targets = self.yaml_data.get("targets", None)
+        if targets is None:
+            return {}
+        if not isinstance(targets, dict):
+            raise RuntimeError(f"Invalid config file {self.config_file}: "
+                               "'targets' must be a mapping of target "
+                               "names to commands")
+        result: dict[str, str | list[str]] = {}
+        for name, command in targets.items():
+            if not isinstance(name, str) or not name:
+                raise RuntimeError(
+                    f"Invalid config file {self.config_file}: "
+                    f"'targets' key {name!r} must be a non-empty string")
+            if isinstance(command, str):
+                result[name] = command
+            elif (isinstance(command, list)
+                  and all(isinstance(entry, str) for entry in command)):
+                result[name] = list(command)
+            else:
+                raise RuntimeError(
+                    f"Invalid config file {self.config_file}: "
+                    f"'targets' entry '{name}' must be a command string "
+                    "or a list of command strings")
+        return result
+
     def build_get_local_context(self):
         build = self.yaml_data.get("build", {})
 

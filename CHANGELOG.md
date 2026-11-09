@@ -13,6 +13,19 @@ Version 0.1
   ``dev-isolator opencode --port 4096``) verbatim to it. Global
   verbosity flags work before the subcommand
   (``dev-isolator -vvv opencode``).
+* The new ``target`` subcommand runs a predefined target command from
+  the ``targets`` section of ``config.yaml`` inside the container (a
+  bit like a predefined ``run``).  It takes only positional arguments:
+  the first one names the target, all following ones are passed to the
+  target's command, which is a jinja2 template in which they are
+  available as ``args[0]``, ``args[1]``, ... and as ``all_args`` (all
+  of them joined with spaces).  A placeholder marked with the
+  ``optional`` filter is only used when the argument was given on the
+  command line (the token holding it, and a preceding option token,
+  is dropped otherwise); without the filter, the argument is
+  mandatory.  The command may be a single command line (a string) or
+  a script given line by line in a list; the script lines run line by
+  line in one shell session, which stops at the first failing line.
 * Add WaitSpinner
 * The merged Containerfile is written as a temporary file into the
   build context and removed afterwards, so podman-py does not copy it

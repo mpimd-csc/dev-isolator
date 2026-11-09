@@ -10,6 +10,8 @@ import sys
 import tarfile
 from pathlib import Path
 
+from types import SimpleNamespace
+
 import podman.errors
 import pytest
 import dev_isolator.container_manager as container_manager
@@ -19,7 +21,7 @@ from dev_isolator.constants import (
     BUNDLE_DIR, ADDON_DIR, CONTAINER_NAME_SUFFIX_LENGTH)
 from dev_isolator.container_manager import ContainerDefintion
 from dev_isolator.main import DEFAULT_SHELL, create_parser, parse_args, \
-    init_project
+    init_project, render_target_lines, target
 from dev_isolator.utils import Verbosity
 
 # The directory bundled with dev-isolator (Containerfile, addons,
@@ -602,6 +604,317 @@ class TestOpencodeParser:
 
         assert args.command == "opencode"
         assert args.opencode_args == ["--port", "4096"]
+
+
+class TestTargetParser:
+    """Test the CLI arguments of the target subcommand."""
+
+    def test_target_with_name_only(self):
+        args = parse_args(["target", "test"])
+        assert args.command == "target"
+        assert args.target_args == ["test"]
+
+    def test_target_passes_extra_arguments(self):
+        """The arguments following the target name are passed to the
+        target's command."""
+        args = parse_args(["target", "test", "-k", "foo"])
+        assert args.command == "target"
+        assert args.target_args == ["test", "-k", "foo"]
+
+    def test_target_passes_leading_options_verbatim(self):
+        """Options starting with '-' are passed through, not parsed by
+        the dev-isolator parser (target takes only positional
+        arguments)."""
+        args = parse_args(["target", "--port", "4096", "test"])
+        assert args.command == "target"
+        assert args.target_args == ["--port", "4096", "test"]
+
+    def test_target_after_verbosity_flags(self):
+        """Global verbosity flags before the subcommand are honored
+        and do not stop the verbatim arguments from being passed."""
+        args = parse_args(["-vvv", "target", "test"])
+        assert args.verbose == 3
+        assert args.command == "target"
+        assert args.target_args == ["test"]
+
+    def test_target_without_arguments(self):
+        args = parse_args(["target"])
+        assert args.command == "target"
+        assert args.target_args == []
+
+
+class TestConfigTargets:
+    """Test the ``targets`` section of the active ``config.yaml``."""
+
+    def write_config(self, tmp_path: Path, content: str) -> Configuration:
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(content)
+        return Configuration(config_file, [tmp_path])
+
+    def test_missing_section_yields_no_targets(self, tmp_path: Path):
+        config = self.write_config(tmp_path, "version: 0.1\n")
+        assert config.config_targets() == {}
+
+    def test_string_and_list_commands_are_read(self, tmp_path: Path):
+        config = self.write_config(tmp_path, (
+            "version: 0.1\n"
+            "targets:\n"
+            "  test: pytest -v\n"
+            "  lint:\n    - ruff\n    - check\n"))
+
+        assert config.config_targets() == {
+            "test": "pytest -v",
+            "lint": ["ruff", "check"],
+        }
+
+    def test_non_mapping_section_is_rejected(self, tmp_path: Path):
+        config = self.write_config(tmp_path,
+                                   "version: 0.1\ntargets: []\n")
+        with pytest.raises(RuntimeError):
+            config.config_targets()
+
+    def test_invalid_command_is_rejected(self, tmp_path: Path):
+        config = self.write_config(
+            tmp_path, "version: 0.1\ntargets:\n  test: [1, 2]\n")
+        with pytest.raises(RuntimeError):
+            config.config_targets()
+
+
+class TestTargetCommand:
+    """Test rendering the command template of a target into lines."""
+
+    def test_string_form_renders_all_args(self):
+        lines = render_target_lines("pytest -v {{ all_args }}",
+                                    ["-k", "foo"])
+        assert lines == [["pytest", "-v", "-k", "foo"]]
+
+    def test_string_form_without_extra_args(self):
+        lines = render_target_lines("pytest -v {{ all_args }}", [])
+        assert lines == [["pytest", "-v"]]
+
+    def test_list_entries_are_whole_lines(self):
+        """Every list entry is one line of a script; a line may hold
+        several tokens."""
+        lines = render_target_lines(
+            ["pytest --cov={{ args[0] }}", "ruff check src"], ["src"])
+        assert lines == [["pytest", "--cov=src"],
+                         ["ruff", "check", "src"]]
+
+    def test_single_line_list_is_one_line(self):
+        lines = render_target_lines(["pytest -v"], [])
+        assert lines == [["pytest", "-v"]]
+
+    def test_optional_argument_is_rendered_when_set(self):
+        lines = render_target_lines(
+            ["pytest {{ args[0] | optional }} -x"], ["-k"])
+        assert lines == [["pytest", "-k", "-x"]]
+
+    def test_optional_argument_value_is_rendered_when_set(self):
+        lines = render_target_lines(
+            ["pytest {{ args[0] | optional }} -x"], ["foo"])
+        assert lines == [["pytest", "foo", "-x"]]
+
+    def test_optional_argument_token_is_dropped_when_unset(self):
+        lines = render_target_lines(
+            ["pytest {{ args[0] | optional }} -x"], [])
+        assert lines == [["pytest", "-x"]]
+
+    def test_optional_argument_drops_preceding_option(self):
+        """An unset optional value drops its preceding option token, so
+        an optional ``-k <value>`` pair disappears as a whole."""
+        lines = render_target_lines(
+            ["pytest -k {{ args[0] | optional }}"], [])
+        assert lines == [["pytest"]]
+
+    def test_optional_flag_with_embedded_value_is_dropped_alone(self):
+        """An option token holding the unset placeholder itself is
+        dropped without also dropping the preceding option."""
+        lines = render_target_lines(
+            ["pytest -v -k={{ args[0] | optional }}"], [])
+        assert lines == [["pytest", "-v"]]
+
+    def test_string_form_optional_is_dropped_when_unset(self):
+        lines = render_target_lines(
+            "pytest {{ args[0] | optional }} -x", [])
+        assert lines == [["pytest", "-x"]]
+
+    def test_line_becoming_empty_is_skipped(self):
+        """A line whose tokens are all dropped disappears from the
+        script."""
+        lines = render_target_lines(
+            ["{{ args[0] | optional }}", "echo done"], [])
+        assert lines == [["echo", "done"]]
+
+    def test_mandatory_argument_is_required(self):
+        """A ``{{ args[n] }}`` placeholder without the ``optional``
+        filter aborts when the argument was not given."""
+        with pytest.raises(RuntimeError):
+            render_target_lines(["pytest --cov={{ args[0] }}"], [])
+
+
+class TestTargetDispatch:
+    """Test that main_intern() dispatches the ``target`` subcommand.
+
+    A single-line target runs its command directly; a multi-line
+    target runs its script in one shell session that stops at the
+    first failing line.
+    """
+
+    def write_config(self, tmp_path: Path, targets_yaml: str):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(targets_yaml)
+        return Configuration(config_file, [tmp_path])
+
+    def test_single_line_target_runs_directly(self, tmp_path, monkeypatch):
+        """A single-line target's command is executed as is, without a
+        wrapping shell."""
+        di_main = importlib.import_module("dev_isolator.main")
+        definition = SimpleNamespace(
+            config=self.write_config(
+                tmp_path, "version: 0.1\ntargets:\n  test: pytest -v\n"))
+
+        called = {}
+
+        def fake_in_container(definition_, command, remainder):
+            called["call"] = (command, remainder)
+            return 0
+
+        monkeypatch.setattr(di_main, "in_container_command",
+                            fake_in_container)
+        monkeypatch.setattr(di_main, "ContainerDefintion",
+                            lambda *args, **kwargs: definition)
+        monkeypatch.setattr(sys, "argv", ["di", "target", "test"])
+
+        assert di_main.main_intern() == 0
+        assert called["call"] == ("pytest", ["-v"])
+
+    def test_multi_line_target_runs_one_shell_script(
+            self, tmp_path, monkeypatch):
+        """A multi-line target runs its script in one shell session
+        (``<shell> -ec script``), stopping at the first failing line."""
+        di_main = importlib.import_module("dev_isolator.main")
+        definition = SimpleNamespace(
+            config=self.write_config(
+                tmp_path,
+                "version: 0.1\ntargets:\n"
+                "  full:\n    - pytest -v\n    - ruff check\n"))
+
+        called = {}
+
+        def fake_in_container(definition_, command, remainder):
+            called["call"] = (command, remainder)
+            return 0
+
+        monkeypatch.setattr(di_main, "in_container_command",
+                            fake_in_container)
+        monkeypatch.setattr(di_main, "ContainerDefintion",
+                            lambda *args, **kwargs: definition)
+        monkeypatch.setattr(sys, "argv", ["di", "target", "full"])
+
+        assert di_main.main_intern() == 0
+        command, remainder = called["call"]
+        assert command == DEFAULT_SHELL
+        assert remainder == ["-ec", "pytest -v\nruff check"]
+
+    def test_multi_line_target_uses_selected_shell(
+            self, tmp_path, monkeypatch):
+        """The shell selected with the global ``--shell/-s`` option
+        runs the script."""
+        di_main = importlib.import_module("dev_isolator.main")
+        definition = SimpleNamespace(
+            config=self.write_config(
+                tmp_path,
+                "version: 0.1\ntargets:\n"
+                "  full:\n    - echo one\n    - echo two\n"))
+
+        called = {}
+
+        def fake_in_container(definition_, command, remainder):
+            called["call"] = (command, remainder)
+            return 0
+
+        monkeypatch.setattr(di_main, "in_container_command",
+                            fake_in_container)
+        monkeypatch.setattr(di_main, "ContainerDefintion",
+                            lambda *args, **kwargs: definition)
+        monkeypatch.setattr(sys, "argv",
+                            ["di", "--shell", "zsh", "target", "full"])
+
+        assert di_main.main_intern() == 0
+        command, remainder = called["call"]
+        assert command == "zsh"
+        assert remainder == ["-ec", "echo one\necho two"]
+
+    def test_script_tokens_are_quoted(self, tmp_path, monkeypatch):
+        """Tokens with spaces are quoted safely when the script lines
+        are re-assembled."""
+        di_main = importlib.import_module("dev_isolator.main")
+        definition = SimpleNamespace(
+            config=self.write_config(
+                tmp_path,
+                "version: 0.1\ntargets:\n"
+                "  full:\n"
+                "    - echo \"hello world\"\n"
+                "    - echo done\n"))
+
+        called = {}
+
+        def fake_in_container(definition_, command, remainder):
+            called["call"] = (command, remainder)
+            return 0
+
+        monkeypatch.setattr(di_main, "in_container_command",
+                            fake_in_container)
+        monkeypatch.setattr(di_main, "ContainerDefintion",
+                            lambda *args, **kwargs: definition)
+        monkeypatch.setattr(sys, "argv", ["di", "target", "full"])
+
+        assert di_main.main_intern() == 0
+        _, remainder = called["call"]
+        assert remainder == ["-ec", "echo 'hello world'\necho done"]
+
+
+class TestTargetHandler:
+    """Test the error paths of the ``target`` sub command handler."""
+
+    def make_definition(self, tmp_path: Path, targets_yaml: str):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(targets_yaml)
+        return SimpleNamespace(
+            config=Configuration(config_file, [tmp_path]))
+
+    def test_no_target_given_prints_available_targets(
+            self, tmp_path: Path, capsys):
+        definition = self.make_definition(
+            tmp_path, "version: 0.1\ntargets:\n  test: pytest\n")
+        args = parse_args(["target"])
+
+        assert target(definition, args) == 1
+        err = capsys.readouterr().err
+        assert "No target given" in err
+        assert "test" in err
+
+    def test_unknown_target_prints_available_targets(
+            self, tmp_path: Path, capsys):
+        definition = self.make_definition(
+            tmp_path, "version: 0.1\ntargets:\n  test: pytest\n")
+        args = parse_args(["target", "bogus"])
+
+        assert target(definition, args) == 1
+        err = capsys.readouterr().err
+        assert "Unknown target 'bogus'" in err
+        assert "test" in err
+
+    def test_mandatory_argument_error_returns_one(
+            self, tmp_path: Path, capsys):
+        definition = self.make_definition(
+            tmp_path,
+            "version: 0.1\ntargets:\n"
+            "  cover:\n    - pytest\n    - --cov={{ args[0] }}\n")
+        args = parse_args(["target", "cover"])
+
+        assert target(definition, args) == 1
+        assert "error" in capsys.readouterr().err.lower()
 
 
 class TestGlobalShellOption:

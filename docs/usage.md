@@ -7,6 +7,7 @@
 - [`build`](#build)
 - [`shell`](#shell)
 - [`run`, `opencode`, `claude`](#run-opencode-claude)
+- [`target`](#target)
 - [`clean`](#clean)
 - [`list-base`](#list-base)
 - [Discovery of the project directory](#discovery-of-the-project-directory)
@@ -36,14 +37,15 @@ dev-isolator [--verbose/-v]... [--shell/-s <shell>] [--config/-c <name>] <subcom
 | `run <command> [args...]` | Run an arbitrary command inside the container. |
 | `opencode [args...]` | Run [opencode](https://opencode.ai/) inside the container. |
 | `claude [args...]` | Run [claude](https://claude.ai/) inside the container. |
+| `target <name> [args...]` | Run a predefined target command from the `targets` section of `config.yaml` inside the container. |
 | `clean` | Remove dev-isolator images. |
 | `list-base` | List the base image definitions bundled with dev-isolator. |
 
 Without an explicit subcommand, `shell` runs with the default shell (`bash`).
 `dev-isolator help` (or `-h` on any subcommand) prints the help. `opencode`,
-`claude` and `run` pass all following (unknown) arguments through to
-the command inside the container; their own options are not parsed by
-dev-isolator.
+`claude`, `run` and `target` take only positional arguments and pass all
+following (unknown) arguments through to the command inside the container;
+their own options are not parsed by dev-isolator.
 
 ### `init`
 
@@ -157,6 +159,57 @@ following arguments are passed to it unchanged. The command must exist inside th
 image; `opencode` and `claude` are provided by the respective bundled addons.
 `run` with no command falls back to a shell. The session exit code is returned
 and the container is stopped and removed afterwards.
+
+### `target`
+
+```bash
+dev-isolator target test           # run the "test" target from config.yaml
+dev-isolator target cover src      # pass "src" to the target's command
+```
+
+Runs a predefined target command inside the container (a bit like a predefined
+`run`).  Like `run`, `target` takes only positional arguments: the first one
+names the target, all following ones are passed to the target's command.
+
+The targets are defined in the `targets` section of the project's `config.yaml`;
+each command is a [jinja2](https://jinja.palletsprojects.com/) template in which
+the extra arguments given after the target name are available:
+
+```yaml
+version: 0.1
+
+targets:
+  test: pytest -v {{ all_args }}           # all extra arguments, joined by spaces
+  cover: pytest --cov={{ args[0] }}        # the first extra argument
+  full:                                    # a whole script, line by line
+    - echo "Building the project"
+    - pytest -v {{ all_args }}
+    - ruff check src
+  lint:
+    - ruff check
+    - "{{ args[0] | optional }}"           # optional argument
+```
+
+- `{{ args[0] }}`, `{{ args[1] }}`, ... refer to the individual extra arguments;
+  `{{ all_args }}` to all of them joined with spaces.
+- A placeholder without the `optional` filter is **mandatory**: running the
+  target without that argument aborts with an error.
+- A placeholder marked with the `optional` filter is only used when the
+  argument was given on the command line; the token holding it is dropped
+  otherwise — together with a preceding option token, so an optional
+  `-k {{ args[0] | optional }}` pair disappears as a whole. A line that
+  becomes empty afterwards is skipped.
+- The command may be a single command line (a string, or a one-entry list) or
+  a **script given line by line in a list**: every entry is one command line.
+  A multi-line script runs line by line in one shell session (the shell
+  selected with `--shell/-s`, `bash` by default), which **stops at the first
+  failing line**; the target's exit code is that line's.
+- An unknown target (or no target at all) aborts with an error listing the
+  available targets.
+
+The rendered command runs inside the container exactly like `run` (the command
+must exist inside the image); the session exit code is returned and the
+container is stopped and removed afterwards.
 
 ### `clean`
 
