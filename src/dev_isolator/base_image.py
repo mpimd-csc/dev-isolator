@@ -245,6 +245,9 @@ class BaseImage:
         """
         container_file = self.base_images.get(self.base_image, None)
         base_content = container_file.read_text(encoding="utf-8")
+        if self.replace_base:
+            base_content = replace_from_images(base_content,
+                                               self.replace_base)
 
         file_content = self.merged_container_file_content(base_content)
         m = hashlib.sha256()
@@ -304,8 +307,10 @@ class BaseImage:
             pkgman = detect_package_manager(image)
             if pkgman not in self.package_managers:
                 raise RuntimeError(f"Package manager {pkgman} not supported.")
+            self.replace_base = image
             self.base_image = self.package_managers[pkgman]
         else:
+            self.replace_base = None
             self.base_image = image
 
         try:

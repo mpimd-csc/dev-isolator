@@ -517,9 +517,9 @@ def get_path(config):
 
     if (config and not di_path) or (config and
                                     not (di_path / config).is_dir()):
-        dprint(Verbosity.INFO, "--config or DEVISOLATOR_CONFIG specified but "
-                               f"'{config}' in the .devisolator directory "
-                               "does not exists.")
+        raise RuntimeError("--config or DEVISOLATOR_CONFIG specified but "
+                           f"'{config}' in the .devisolator directory "
+                           "does not exists.")
 
     candidates_container_file: [Path] = list()
     candidates_config_file: [Path] = list()
