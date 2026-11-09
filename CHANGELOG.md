@@ -26,6 +26,9 @@ Version 0.1
   mandatory.  The command may be a single command line (a string) or
   a script given line by line in a list; the script lines run line by
   line in one shell session, which stops at the first failing line.
+* The new ``list-targets`` subcommand prints the target names defined
+  in the ``targets`` section of the active ``config.yaml``, one per
+  line, sorted alphabetically.
 * Add WaitSpinner
 * The merged Containerfile is written as a temporary file into the
   build context and removed afterwards, so podman-py does not copy it

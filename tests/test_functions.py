@@ -21,7 +21,7 @@ from dev_isolator.constants import (
     BUNDLE_DIR, ADDON_DIR, CONTAINER_NAME_SUFFIX_LENGTH)
 from dev_isolator.container_manager import ContainerDefintion
 from dev_isolator.main import DEFAULT_SHELL, create_parser, parse_args, \
-    init_project, render_target_lines, target
+    init_project, render_target_lines, target, list_targets
 from dev_isolator.utils import Verbosity
 
 # The directory bundled with dev-isolator (Containerfile, addons,
@@ -872,6 +872,56 @@ class TestTargetDispatch:
         assert di_main.main_intern() == 0
         _, remainder = called["call"]
         assert remainder == ["-ec", "echo 'hello world'\necho done"]
+
+
+class TestListTargets:
+    """Test the ``list-targets`` subcommand."""
+
+    def test_list_targets_is_parsed(self):
+        args = parse_args(["list-targets"])
+        assert args.command == "list-targets"
+
+    def test_targets_are_printed_sorted(self, tmp_path: Path, capsys):
+        """The target names are printed one per line, sorted
+        alphabetically."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            "version: 0.1\ntargets:\n"
+            "  test: pytest\n"
+            "  cover: pytest --cov=.\n"
+            "  lint: ruff check\n")
+        definition = SimpleNamespace(
+            config=Configuration(config_file, [tmp_path]))
+
+        assert list_targets(definition, parse_args(["list-targets"])) == 0
+        assert capsys.readouterr().out == "cover\nlint\ntest\n"
+
+    def test_no_targets_prints_nothing(self, tmp_path: Path, capsys):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("version: 0.1\n")
+        definition = SimpleNamespace(
+            config=Configuration(config_file, [tmp_path]))
+
+        assert list_targets(definition, parse_args(["list-targets"])) == 0
+        assert capsys.readouterr().out == ""
+
+    def test_main_intern_dispatches_list_targets(
+            self, tmp_path, monkeypatch, capsys):
+        """main_intern() runs the list-targets handler of the active
+        config.yaml without touching podman."""
+        di_main = importlib.import_module("dev_isolator.main")
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            "version: 0.1\ntargets:\n  test: pytest\n")
+        definition = SimpleNamespace(
+            config=Configuration(config_file, [tmp_path]))
+
+        monkeypatch.setattr(di_main, "ContainerDefintion",
+                            lambda *args, **kwargs: definition)
+        monkeypatch.setattr(sys, "argv", ["di", "list-targets"])
+
+        assert di_main.main_intern() == 0
+        assert capsys.readouterr().out == "test\n"
 
 
 class TestTargetHandler:

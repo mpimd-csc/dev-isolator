@@ -34,6 +34,9 @@ The sub commands are:
     current project).
 ``list-base``
     List the base image definitions bundled with dev-isolator.
+``list-targets``
+    List the targets defined in the ``targets`` section of the active
+    ``config.yaml``.
 ``help``
     Show the help message.
 
@@ -123,6 +126,7 @@ examples:
   dev-isolator opencode           run opencode inside the container
   dev-isolator clean --all        remove every dev-isolator image
   dev-isolator list-base          list the available base image definitions
+  dev-isolator list-targets       list the targets of the active config.yaml
 
 The dev-isolator command can also be abbreviated by `di`
         """
@@ -189,6 +193,14 @@ The dev-isolator command can also be abbreviated by `di`
             description="List the base image definitions bundled with "
                         "dev-isolator, i.e. the images a project "
                         "``Containerfile`` can use as its base."
+            )
+    subparsers.add_parser(
+            "list-targets",
+            help="List the targets of the active config.yaml",
+            description="List the target names defined in the "
+                        "``targets`` section of the active "
+                        "``config.yaml``, i.e. the targets a project "
+                        "can run with ``target <name>``."
             )
 
     build_parser = subparsers.add_parser(
@@ -501,6 +513,27 @@ def list_base() -> int:
     base = BaseImage()
     for bi in base.list_base_images():
         print(f"{bi}")
+    return 0
+
+
+def list_targets(definition, args) -> int:
+    """Handle the ``list-targets`` sub command.
+
+    Print the target names defined in the ``targets`` section of the
+    active ``config.yaml``, one per line, sorted alphabetically.  These
+    are the targets a project can run with ``target <name>`` (see
+    :func:`target`).  It only needs the ``config.yaml`` of the project,
+    not a podman connection.  Returns 0.
+
+    :param definition: The container definition of the current project
+        (holding the active ``config.yaml``).
+    :param args: The parsed command line arguments (from
+        :func:`parse_args`).
+    :returns: 0 on success.
+    """
+    targets = definition.config.config_targets()
+    for name in sorted(targets):
+        print(name)
     return 0
 
 
@@ -854,6 +887,8 @@ def main_intern() -> int:
         return shell(definition, args)
     if args.command == "target":
         return target(definition, args)
+    if args.command == "list-targets":
+        return list_targets(definition, args)
     return 0
 
 

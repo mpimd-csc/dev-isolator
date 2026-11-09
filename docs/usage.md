@@ -10,6 +10,7 @@
 - [`target`](#target)
 - [`clean`](#clean)
 - [`list-base`](#list-base)
+- [`list-targets`](#list-targets)
 - [Discovery of the project directory](#discovery-of-the-project-directory)
   - [`--config`: selecting a sub-configuration](#--config-selecting-a-sub-configuration)
 
@@ -40,6 +41,7 @@ dev-isolator [--verbose/-v]... [--shell/-s <shell>] [--config/-c <name>] <subcom
 | `target <name> [args...]` | Run a predefined target command from the `targets` section of `config.yaml` inside the container. |
 | `clean` | Remove dev-isolator images. |
 | `list-base` | List the base image definitions bundled with dev-isolator. |
+| `list-targets` | List the targets of the active `config.yaml`. |
 
 Without an explicit subcommand, `shell` runs with the default shell (`bash`).
 `dev-isolator help` (or `-h` on any subcommand) prints the help. `opencode`,
@@ -259,6 +261,18 @@ plain base name, for example `ubuntu:24.04`. These are the names a project
 bundled base Containerfile (see [Base images](base-images.md#base-images)). Unlike the other
 subcommands, `list-base` needs no initialized `.devisolator` directory and
 works from any location.
+
+### `list-targets`
+
+```bash
+dev-isolator list-targets
+```
+
+Lists the target names defined in the `targets` section of the active
+`config.yaml`, one per line, sorted alphabetically. These are the targets a
+project can run with [`target <name>`](#target). Like `list-base`, it prints
+only names (scriptable); it needs the project's `config.yaml`, so it uses the
+same project-directory discovery as the other subcommands.
 
 ### Discovery of the project directory
 
