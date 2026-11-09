@@ -18,6 +18,37 @@
 
 Both `dev-isolator` and `di` (a short alias) start the tool.
 
+## Table of Contents
+
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Command line overview](#command-line-overview)
+  - [`init`](#init)
+  - [`build`](#build)
+  - [`shell`](#shell)
+  - [`run`, `opencode`, `claude`](#run-opencode-claude)
+  - [`clean`](#clean)
+  - [`list-base`](#list-base)
+  - [Discovery of the project directory](#discovery-of-the-project-directory)
+- [Sub-configurations (`--config`)](#sub-configurations---config)
+  - [What a sub-configuration overrides](#what-a-sub-configuration-overrides)
+  - [Naming: every sub-configuration gets its own image](#naming-every-sub-configuration-gets-its-own-image)
+  - [Example: a project with a `gpu` sub-configuration](#example-a-project-with-a-gpu-sub-configuration)
+- [Project configuration](#project-configuration)
+  - [Addon configuration (`config.<addon>.yaml`)](#addon-configuration-configaddonyaml)
+  - [Run arguments (`run_arguments`)](#run-arguments-run_arguments)
+- [Base images](#base-images)
+  - [What a project `Containerfile`'s `FROM` references](#what-a-project-containerfiles-from-references)
+  - [Where a base image comes from](#where-a-base-image-comes-from)
+  - [What goes into the base image, what goes into the project image](#what-goes-into-the-base-image-what-goes-into-the-project-image)
+  - [Base image cleanup](#base-image-cleanup)
+  - [Bundle base images and addons](#bundle-base-images-and-addons)
+- [Typical workflow](#typical-workflow)
+- [Examples: a `.devisolator` folder](#examples-a-devisolator-folder)
+  - [What gets built](#what-gets-built)
+- [Contributing](#contributing)
+- [Licensing](#licensing)
+
 ## Installation
 
 Before using `dev-isolator`, [podman](https://podman.io/) must be enabled as a
