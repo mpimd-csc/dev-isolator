@@ -16,8 +16,8 @@ See [LICENSE](LICENSE) for details.
 
 ## Installation
 
-Before using `dev-isolator`, [podman](https://podman.io/) must be enabled as a
-user service, typically with:
+Before using `dev-isolator`, [podman](https://podman.io/) must be installed and 
+enabled as a user service, typically with:
 
 ```shell
 systemctl --user enable --now podman.service
