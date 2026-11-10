@@ -646,18 +646,7 @@ def render_target_lines(template: str | list[str],
                "all_args": " ".join(extra_args)}
 
     if isinstance(template, str):
-        # String form: one template for the whole command line.
-        try:
-            text = environment.from_string(template).render(**context)
-        except jinja2.UndefinedError as e:
-            raise RuntimeError(
-                f"Invalid target command '{template}': {e}. A mandatory "
-                "argument ({{ args[n] }} without the 'optional' filter) "
-                "was not given on the command line; mark it optional in "
-                "config.yaml with '{{ args[n] | optional }}' if it may "
-                "be omitted.") from e
-        tokens = _drop_unset_optional(shlex.split(text))
-        return [tokens] if tokens else []
+        template = [template]
 
     # List form: every entry is one line of a script.
     lines: list[list[str]] = []
