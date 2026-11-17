@@ -4,6 +4,7 @@
 # and LICENSE. This file additionally bundles the remaining project
 # documentation (Markdown) and the citation metadata (CFF) so the sdist is
 # self-contained for archiving and reproduction.
+include docs/*
 include *.md
 include *.cff
 include build-wheels.sh

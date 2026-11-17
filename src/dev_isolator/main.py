@@ -78,7 +78,7 @@ from .container_image import replace_from_images
 from .utils import set_verbosity, search_path, Verbosity, dprint
 from .constants import (BUNDLE_DIR, CONFIG_FILE_NAME, ADDON_DIR,
                         DEV_ISOLATOR_DIR, DEFAULT_BASE)
-from .base_image import BaseImage
+from .base_image import BaseImage, detect_package_manager
 from pathlib import Path
 from .config import Configuration
 
@@ -476,8 +476,11 @@ def init_project(args) -> int:
 
             base_name = args.init_base
             if base_name not in lb:
-                raise RuntimeError(
-                    f"Base image {args.init_base} unknown.")
+                pkg_name = detect_package_manager(base_name)
+                if not pkg_name:
+                    raise RuntimeError(
+                        f"Base image {args.init_base} unknown or "
+                        "package manager not supported.")
             new_image = f"{base_name}"
 
             file_content = src_container_file.read_text(encoding="utf-8")

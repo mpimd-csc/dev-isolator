@@ -202,6 +202,13 @@ class BaseImage:
         bil.sort()
         return bil
 
+    def get_base_from_pkg(self, pkg):
+        file = self.package_managers[pkg]
+        for v in self.base_images:
+            if self.base_images[v] == file:
+                return v
+        return None
+
     def _parse_di_base(self, path):
         """Return the DI_BASE value from the file's first comment block."""
         # Matches "DI_BASE = VALUE" in a comment line.

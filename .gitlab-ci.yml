@@ -1,10 +1,22 @@
+workflow:
+  rules:
+    - if: $CI_COMMIT_MESSAGE =~ /\[ci skip\]/
+      when: never
+    - when: always
+
 default:
-    interruptible: true
+  interruptible: true
+
 variables:
-  GIT_SUBMODULE_STRATEGY: recursive
+    GIT_SUBMODULE_STRATEGY: recursive
+    VERSION_PATTERN: '^v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?(b[0-9]+)?(\.post[0-9]+)?$'
+    VERSION_PATTERN_REGEX: '/^v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?(b[0-9]+)?(\.post[0-9]+)?$/'
+
 
 stages:
   - build
+  - publish
+
 
 python:
   parallel:
@@ -21,4 +33,28 @@ python:
     - pip install pytest
     - pip install -e .
     - pytest
+
+publish-wheel-test:
+  stage: publish
+  image: gitlab.mpi-magdeburg.mpg.de/ci-images/python-images/3.12:resolute
+  rules:
+    - if: $CI_COMMIT_TAG =~ $VERSION_PATTERN_REGEX
+  script:
+     - |
+       bash ./build-wheel.sh
+       pip install twine
+       TWINE_PASSWORD=${TWINE_TEST_PASSWORD} TWINE_USERNAME=${TWINE_TEST_USER} python -m twine upload --repository testpypi  --verbose dist/*.whl
+
+publish-wheel:
+  stage: publish
+  image: gitlab.mpi-magdeburg.mpg.de/ci-images/python-images/3.12:resolute
+  rules:
+    - if: $CI_COMMIT_TAG =~ $VERSION_PATTERN_REGEX
+      when: manual
+    - when: never
+  script:
+     - |
+       bash ./build-wheel.sh
+       pip install twine
+       TWINE_PASSWORD=${TWINE_PASSWORD} TWINE_USERNAME=${TWINE_USER} python -m twine upload --verbose dist/*.whl
 
