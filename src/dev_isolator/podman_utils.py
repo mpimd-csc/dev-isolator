@@ -70,6 +70,7 @@ def replace_from_images(content: str, new_image: str) -> str:
 
     return source.decode("utf-8")
 
+
 def get_image_id(client, tag):
     """Return the id of the image tagged ``tag``, or ``None``.
 

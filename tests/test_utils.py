@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 
 from dev_isolator import utils
-from dev_isolator.utils import Verbosity, dprint, get_verbosity, search_path, set_verbosity
+from dev_isolator.utils import (Verbosity, dprint, get_verbosity,
+                                search_path, set_verbosity)
 
 
 @pytest.fixture(autouse=True)

@@ -23,7 +23,8 @@ def definition(tmp_path: Path, monkeypatch) -> ContainerDefintion:
     container_file.write_text(
         "FROM ubuntu:26.04\n")
     (config_dir / "addon.mine").write_text("RUN echo custom\n")
-    (config_dir / "config.yaml").write_text("version: 0.1\naddons:\n  - mine\n")
+    (config_dir / "config.yaml").write_text(
+        "version: 0.1\naddons:\n  - mine\n")
     # The base image build is not part of these tests; it is stubbed
     # out to return the (image, image_tag, content_hash) tuple the real
     # build produces, of which only the image tag is used (as the base
@@ -295,9 +296,10 @@ class TestRunSettingsFromConfig:
         monkeypatch.setenv("DEV_ISOLATOR_TEST_HOST", str(env_host))
 
         environment, volumes = settings_from_config({
-            "environment": ["DEV_ISOLATOR_TEST_VAR", "DEV_ISOLATOR_TEST_UNSET"],
+            "environment": ["DEV_ISOLATOR_TEST_VAR",
+                            "DEV_ISOLATOR_TEST_UNSET"],
             "volumes": [f"{host_data}:/container/data:ro",
-                        f"ENV[DEV_ISOLATOR_TEST_HOST]:/env/data"],
+                        "ENV[DEV_ISOLATOR_TEST_HOST]:/env/data"],
         })
 
         assert environment == {"DEV_ISOLATOR_TEST_VAR": "test-value"}
@@ -395,7 +397,8 @@ class TestConfigRunSettings:
         """A config.yaml without environment/volumes yields empty
         settings."""
         config_dir = tmp_path / ".devisolator"
-        (config_dir / "config.yaml").write_text("version: 0.1\naddons:\n  - mine\n")
+        (config_dir / "config.yaml").write_text(
+            "version: 0.1\naddons:\n  - mine\n")
 
         assert definition.config.config_environment() == {}
         assert definition.config.config_volumes() == {}
@@ -506,7 +509,8 @@ class TestRunContainerSettings:
         (config_dir / "Containerfile").write_text(
             "FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("version: 0.1\naddons:\n  - mine\n")
+        (config_dir / "config.yaml").write_text(
+            "version: 0.1\naddons:\n  - mine\n")
         host_data = tmp_path / "host_data"
         host_data.mkdir()
         (config_dir / "config.mine.yaml").write_text(
@@ -542,7 +546,8 @@ class TestRunContainerSettings:
         (config_dir / "Containerfile").write_text(
             "FROM ubuntu:26.04\n")
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("version: 0.1\naddons:\n  - mine\n")
+        (config_dir / "config.yaml").write_text(
+            "version: 0.1\naddons:\n  - mine\n")
 
         containers = FakeContainers()
         monkeypatch.setattr(

@@ -83,9 +83,9 @@ class TestMergedContainerfile:
         # Existing users/groups occupying the host UID/GID/username
         # are removed before the user is created.
         assert f"getent passwd {uid}" in merged
-        assert f"userdel --force --remove" in merged
+        assert "userdel --force --remove" in merged
         assert f"userdel --force --remove {username}" in merged
-        assert f"groupdel" in merged
+        assert "groupdel" in merged
         assert f"groupadd --gid {gid} {username}" in merged
         assert f"useradd --uid {uid} --gid {gid}" in merged
         assert f"USER {username}" in merged
@@ -101,7 +101,8 @@ class TestMergedContainerfile:
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("version: 0.1\naddons:\n  - mine\n")
+        (config_dir / "config.yaml").write_text(
+            "version: 0.1\naddons:\n  - mine\n")
 
         config = make_configuration(config_dir / "config.yaml",
                                     [config_dir, BUNDLED_DIR])
@@ -137,7 +138,8 @@ class TestMergedContainerfile:
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("version: 0.1\naddons:\n  - mine\n")
+        (config_dir / "config.yaml").write_text(
+            "version: 0.1\naddons:\n  - mine\n")
 
         config = make_configuration(config_dir / "config.yaml",
                                     [config_dir, BUNDLED_DIR])
@@ -447,7 +449,8 @@ class TestBaseImageBuild:
         config_dir = tmp_path / ".devisolator"
         config_dir.mkdir()
         (config_dir / "addon.mine").write_text("RUN echo custom\n")
-        (config_dir / "config.yaml").write_text("version: 0.1\naddons:\n  - mine\n")
+        (config_dir / "config.yaml").write_text(
+            "version: 0.1\naddons:\n  - mine\n")
         config = make_configuration(config_dir / "config.yaml",
                                     [config_dir])
         return BaseImage(config)
@@ -1588,6 +1591,14 @@ class TestInitBase:
         ``localhost/dev-isolator-`` prefix matches no bundled base
         image and aborts with an error."""
         monkeypatch.chdir(tmp_path)
+        # The unknown-base path consults the podman daemon; mock it so
+        # the test does not depend on a running daemon or registry
+        # configuration. Fetch the module from ``sys.modules``: the
+        # package re-exports the ``main()`` function, so the attribute
+        # ``dev_isolator.main`` (and thus ``monkeypatch``'s string
+        # target) resolves to the function instead of the module.
+        monkeypatch.setattr(sys.modules["dev_isolator.main"],
+                            "detect_package_manager", lambda image: None)
         for base in ("dev-isolator-ubuntu:26.04",
                      "localhost/dev-isolator-ubuntu:24.04"):
             with pytest.raises(RuntimeError, match="unknown"):
@@ -1597,5 +1608,13 @@ class TestInitBase:
         """An unknown base image aborts with an error and nothing is
         written."""
         monkeypatch.chdir(tmp_path)
+        # The unknown-base path consults the podman daemon; mock it so
+        # the test does not depend on a running daemon or registry
+        # configuration. Fetch the module from ``sys.modules``: the
+        # package re-exports the ``main()`` function, so the attribute
+        # ``dev_isolator.main`` (and thus ``monkeypatch``'s string
+        # target) resolves to the function instead of the module.
+        monkeypatch.setattr(sys.modules["dev_isolator.main"],
+                            "detect_package_manager", lambda image: None)
         with pytest.raises(RuntimeError, match="unknown"):
             init_project(parse_args(["init", "--base", "bogus:1.0"]))

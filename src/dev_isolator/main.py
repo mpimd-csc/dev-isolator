@@ -69,7 +69,6 @@ import sys
 import os
 import shlex
 import shutil
-import random
 
 import jinja2
 

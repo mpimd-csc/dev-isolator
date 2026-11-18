@@ -126,7 +126,8 @@ class ContainerDefintion:
             superseded image cannot be removed.
         """
 
-        image = self.container_file_obj.build(keep_container_file=keep_container_file)
+        image = self.container_file_obj.build(
+            keep_container_file=keep_container_file)
         return image
 
     def run_container(self, interactive_shell: str = "bash",
