@@ -21,8 +21,9 @@ import re
 from pathlib import Path
 from .constants import (ADDON_FILE_PREFIX, ADDON_FILE_SUFFIX,
                         ADDON_CONFIG_FILE_PREFIX, ADDON_CONFIG_FILE_SUFFIX,
-                        CONFIG_VERSION, DEV_ISOLATOR_DIR)
+                        CONFIG_VERSION)
 import yaml
+import importlib.util
 
 from .utils import Verbosity, dprint
 
@@ -352,6 +353,38 @@ class Configuration:
                 return resolved
         return None
 
+    def addon_config_script(self, addon_name: str) -> tuple[dict[str, str],
+                                                            dict[str, dict]]:
+        environment: dict[str, str] = {}
+        volumes: dict[str, str] = {}
+        file_name = (f"{ADDON_CONFIG_FILE_PREFIX}{addon_name}"
+                     f".py")
+        for directory in self.addon_search_paths:
+            candidate = directory / file_name
+            dprint(Verbosity.TRACE, f"Try addon script file {candidate}")
+            resolved = candidate.resolve()
+            if resolved.is_file():
+                break
+        if not resolved:
+            return environment, volumes
+        if not resolved.is_file():
+            return environment, volumes
+
+        spec = importlib.util.spec_from_file_location(f"{addon_name}",
+                                                      resolved)
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        environment_func = getattr(module, "environment", None)
+        if environment_func:
+            environment = environment_func()
+        volumes_func = getattr(module, "volumes", None)
+        if volumes_func:
+            volumes = volumes()
+
+        return environment, volumes
+
     def addon_run_settings(self) -> tuple[dict[str, str], dict[str, dict]]:
         """Return the environment variables and volume mounts
         requested by the enabled addons' config files.
@@ -390,6 +423,12 @@ class Configuration:
             except Exception as e:
                 raise RuntimeError(f"Failed to load addon config {config_file}"
                                    ": {e}") from e
+
+            script_environment, script_volumes = self.addon_config_script(name)
+            if script_environment:
+                environment |= script_environment
+            if script_volumes:
+                volumes |= script_volumes
 
             addon_environment = self._get_environment(data)
             addon_volumes = self._get_volumes(data)
@@ -431,7 +470,7 @@ class Configuration:
         """
         return self._get_volumes(self.yaml_data)
 
-    def config_run_arguments(self) -> dict:
+    def run_arguments(self) -> dict:
         """Return the additional container creation arguments declared
         in the active ``config.yaml``.
 
@@ -476,7 +515,7 @@ class Configuration:
         if "userns_mode" not in arguments:
             arguments["userns_mode"] = "keep-id"
         if "network_mode" not in arguments:
-            arguments["network_mode"] = "host"
+            arguments["network_mode"] = "bridge"
         return dict(arguments)
 
     def config_targets(self) -> dict[str, str | list[str]]:

@@ -69,6 +69,7 @@ import sys
 import os
 import shlex
 import shutil
+import random
 
 import jinja2
 
@@ -540,7 +541,7 @@ def list_targets(definition, args) -> int:
     return 0
 
 
-def in_container_command(definition, command, remainder) -> int:
+def in_container_command(definition, command, remainder, env=None) -> int:
     """Run ``command`` with ``remainder`` as its arguments inside the
     container of the current project.
 
@@ -550,7 +551,7 @@ def in_container_command(definition, command, remainder) -> int:
     """
     try:
         return definition.run_container(
-            command=[command, *remainder])
+            command=[command, *remainder], extra_environment=env)
     except Exception as e:
         print(f"An error occured: {e}", file=sys.stderr)
         return 1

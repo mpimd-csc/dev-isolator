@@ -130,7 +130,8 @@ class ContainerDefintion:
         return image
 
     def run_container(self, interactive_shell: str = "bash",
-                      command: list[str] | None = None) -> int:
+                      command: list[str] | None = None,
+                      extra_environment: dict[str, str] | None = None) -> int:
         """Open an interactive terminal/shell inside the container.
 
         Builds the image (see :meth:`build_container`), creates a
@@ -173,12 +174,16 @@ class ContainerDefintion:
 
             # Additional containers.create() arguments declared
             # directly in the project's config.yaml.
-            run_arguments = self.config.config_run_arguments()
+            run_arguments = self.config.run_arguments()
 
             # Settings requested by the enabled addons.
             addon_environment, addon_volumes = self.config.addon_run_settings()
             environment |= addon_environment
             volumes |= addon_volumes
+
+            # Add teh extra environment
+            if extra_environment:
+                environment |= extra_environment
 
             # Bind the workspace last, so it always takes precedence.
             volumes[os.getcwd()] = {"bind": "/workspace", "mode": "rw"}
