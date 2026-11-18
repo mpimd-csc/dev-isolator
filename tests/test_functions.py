@@ -876,6 +876,68 @@ class TestTargetDispatch:
         _, remainder = called["call"]
         assert remainder == ["-ec", "echo 'hello world'\necho done"]
 
+    def test_single_line_target_with_operators_runs_shell(
+            self, tmp_path, monkeypatch):
+        """A single-line target containing shell operators or
+        redirections (for example ``2>&1`` or ``|``) is run through
+        the shell, so they are interpreted instead of being passed as
+        literal arguments."""
+        di_main = importlib.import_module("dev_isolator.main")
+        definition = SimpleNamespace(
+            config=self.write_config(
+                tmp_path,
+                "version: 0.1\ntargets:\n"
+                "  test: pytest -v 2>&1 | tee output.txt\n"))
+
+        called = {}
+
+        def fake_in_container(definition_, command, remainder):
+            called["call"] = (command, remainder)
+            return 0
+
+        monkeypatch.setattr(di_main, "in_container_command",
+                            fake_in_container)
+        monkeypatch.setattr(di_main, "ContainerDefintion",
+                            lambda *args, **kwargs: definition)
+        monkeypatch.setattr(sys, "argv", ["di", "target", "test"])
+
+        assert di_main.main_intern() == 0
+        command, remainder = called["call"]
+        assert command == DEFAULT_SHELL
+        assert remainder == ["-ec", "pytest -v 2>&1 | tee output.txt"]
+
+    def test_script_operator_tokens_are_not_quoted(
+            self, tmp_path, monkeypatch):
+        """Redirection and pipe tokens in script lines are left
+        unquoted when the script lines are re-assembled, so the shell
+        interprets them; ordinary tokens are still quoted safely."""
+        di_main = importlib.import_module("dev_isolator.main")
+        definition = SimpleNamespace(
+            config=self.write_config(
+                tmp_path,
+                "version: 0.1\ntargets:\n"
+                "  full:\n"
+                "    - echo \"hello world\"\n"
+                "    - pytest -v 2>&1 | tee out.txt\n"))
+
+        called = {}
+
+        def fake_in_container(definition_, command, remainder):
+            called["call"] = (command, remainder)
+            return 0
+
+        monkeypatch.setattr(di_main, "in_container_command",
+                            fake_in_container)
+        monkeypatch.setattr(di_main, "ContainerDefintion",
+                            lambda *args, **kwargs: definition)
+        monkeypatch.setattr(sys, "argv", ["di", "target", "full"])
+
+        assert di_main.main_intern() == 0
+        _, remainder = called["call"]
+        assert remainder == ["-ec",
+                             "echo 'hello world'\n"
+                             "pytest -v 2>&1 | tee out.txt"]
+
 
 class TestListTargets:
     """Test the ``list-targets`` subcommand."""

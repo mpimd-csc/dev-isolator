@@ -22,7 +22,7 @@ from .constants import (IMAGE_PREFIX,
                         CONTAINER_NAME_SUFFIX_LENGTH,
                         BUNDLE_DIR)
 from .container_image import ContainerImage
-
+from .waitspinner import WaitSpinner
 
 def slugify_path(path: str | os.PathLike) -> str:
     """Return a slug (e.g. ``my-project``) suitable
@@ -200,17 +200,18 @@ class ContainerDefintion:
             # project run in parallel.
             container_name = self.container_name()
 
-            container = client.containers.create(
-                image,
-                name=container_name,
-                # The image's entrypoint may exit immediately; keep
-                # the container alive so shells can exec into it.
-                entrypoint=["sleep", "infinity"],
-                environment=environment,
-                volumes=volumes,
-                detach=True,
-                **run_arguments,
-            )
+            with WaitSpinner("Creating the container"):
+                container = client.containers.create(
+                    image,
+                    name=container_name,
+                    # The image's entrypoint may exit immediately; keep
+                    # the container alive so shells can exec into it.
+                    entrypoint=["sleep", "infinity"],
+                    environment=environment,
+                    volumes=volumes,
+                    detach=True,
+                    **run_arguments,
+                )
             dprint(Verbosity.INFO,
                    f"Created container {container_name} "
                    f"from {self.image_name()}")

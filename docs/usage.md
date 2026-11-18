@@ -206,6 +206,11 @@ targets:
   A multi-line script runs line by line in one shell session (the shell
   selected with `--shell/-s`, `bash` by default), which **stops at the first
   failing line**; the target's exit code is that line's.
+- Shell operators and redirections (for example `2>&1`, `|`, `&&`, `;`,
+  `>>out.txt`) are interpreted: a line containing them is run through the
+  shell, so `test: pytest -v 2>&1 | tee output.txt` works as written. Its
+  ordinary tokens (and the extra arguments) are quoted safely; operator
+  tokens are left as is.
 - An unknown target (or no target at all) aborts with an error listing the
   available targets.
 

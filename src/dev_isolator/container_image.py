@@ -157,7 +157,7 @@ class ContainerImage:
         """
         fd, temp_name = mkstemp(dir=os.getcwd(),
                                 prefix="Containerfile-fail-")
-        fd.close()
+        os.close(fd)
         Path(temp_name).write_text(content, encoding="utf-8")
         dprint(Verbosity.ERROR, "Kept generated Containerfile as "
                                 f"{temp_name}")

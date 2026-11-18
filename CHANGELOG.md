@@ -29,6 +29,11 @@ Version 0.1
 * The new ``list-targets`` subcommand prints the target names defined
   in the ``targets`` section of the active ``config.yaml``, one per
   line, sorted alphabetically.
+* Target commands may use shell operators and redirections (for
+  example ``pytest 2>&1 | tee output.txt``): a rendered target line
+  containing them is run through the shell, so they are interpreted
+  instead of being passed as literal arguments. Ordinary tokens are
+  quoted safely; operator tokens are left as is.
 * Add WaitSpinner
 * The merged Containerfile is written as a temporary file into the
   build context and removed afterwards, so podman-py does not copy it

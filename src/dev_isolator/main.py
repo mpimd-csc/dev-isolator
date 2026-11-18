@@ -67,6 +67,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 import argparse
 import sys
 import os
+import re
 import shlex
 import shutil
 
@@ -619,6 +620,39 @@ def _drop_unset_optional(tokens: list[str]) -> list[str]:
     return result
 
 
+#: Matches a token that is a shell operator or redirection, for example
+#: ``|``, ``||``, ``&&``, ``;``, ``>``, ``>>``, ``2>&1``,
+#: ``2>/dev/null`` or ``>>out.txt``. Such tokens are left unquoted when
+#: a rendered target line is assembled for the shell, so redirections
+#: and pipes in target commands are interpreted instead of being
+#: passed as literal arguments.
+_SHELL_OPERATOR_RE = re.compile(
+    r"^(?:"
+    r"\|\||&&|[|&;]"
+    r"|\d*(?:<<|>>|[<>])(?:&\d*)?"
+    r"|\d*(?:<<|>>|[<>])\S+"
+    r")$")
+
+
+def _has_shell_operators(tokens: list[str]) -> bool:
+    """Return whether any of the ``tokens`` is a shell operator or
+       redirection (see :data:`_SHELL_OPERATOR_RE`)."""
+    return any(_SHELL_OPERATOR_RE.match(token) for token in tokens)
+
+
+def _join_shell_tokens(tokens: list[str]) -> str:
+    """Join the rendered ``tokens`` into one shell command line.
+
+    Ordinary tokens are quoted safely (like :func:`shlex.quote`); a
+    token that is a shell operator or redirection (see
+    :data:`_SHELL_OPERATOR_RE`) is left unquoted, so the shell
+    interprets it instead of receiving it as a literal argument.
+    """
+    return " ".join(token if _SHELL_OPERATOR_RE.match(token)
+                    else shlex.quote(token)
+                    for token in tokens)
+
+
 def render_target_lines(template: str | list[str],
                         extra_args: list[str]) -> list[list[str]]:
     """Render the command template of a target into script lines.
@@ -684,6 +718,11 @@ def target(definition, args) -> int:
     in one shell session (``args.shell -ec script``), which stops at
     the first failing line.
 
+    A rendered line containing shell operators or redirections (for
+    example ``pytest 2>&1 | tee output.txt``) is run through the shell
+    (``args.shell -ec line``), so the operators are interpreted; its
+    ordinary tokens are quoted safely, operator tokens are left as is.
+
     :param definition: The container definition of the current project.
     :param args: The parsed command line arguments (from
         :func:`parse_args`).
@@ -714,11 +753,15 @@ def target(definition, args) -> int:
         return 1
     if len(lines) == 1:
         command = lines[0]
+        # A line with shell operators (for example ``2>&1`` or ``|``)
+        # needs a shell to be interpreted; run it through the shell.
+        if _has_shell_operators(command):
+            return in_container_command(
+                definition, args.shell, ["-ec", _join_shell_tokens(command)])
         return in_container_command(definition, command[0], command[1:])
     # Several lines: run the script in one shell session; ``-e`` stops
     # it at the first failing line.
-    script = "\n".join(" ".join(shlex.quote(token) for token in line)
-                       for line in lines)
+    script = "\n".join(_join_shell_tokens(line) for line in lines)
     return in_container_command(definition, args.shell, ["-ec", script])
 
 

@@ -37,6 +37,7 @@ addons:
 #     - pytest -v {{ all_args }}
 #     - ruff check src
 #   cover: pytest --cov={{ args[0] }}
+#   log: pytest -v 2>&1 | tee output.txt
 #   lint:
 #     - ruff check
 #     - "{{ args[0] | optional }}"
