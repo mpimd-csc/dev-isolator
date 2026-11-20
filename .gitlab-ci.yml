@@ -41,8 +41,8 @@ publish-wheel-test:
     - if: $CI_COMMIT_TAG =~ $VERSION_PATTERN_REGEX
   script:
      - |
-       bash ./build-wheel.sh
-       pip install twine
+       bash ./build-wheels.sh
+       pip install twine auditwheel
        TWINE_PASSWORD=${TWINE_TEST_PASSWORD} TWINE_USERNAME=${TWINE_TEST_USER} python -m twine upload --repository testpypi  --verbose dist/*.whl
 
 publish-wheel:
@@ -54,7 +54,7 @@ publish-wheel:
     - when: never
   script:
      - |
-       bash ./build-wheel.sh
-       pip install twine
+       bash ./build-wheels.sh
+       pip install twine auditwheel
        TWINE_PASSWORD=${TWINE_PASSWORD} TWINE_USERNAME=${TWINE_USER} python -m twine upload --verbose dist/*.whl
 
