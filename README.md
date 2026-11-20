@@ -23,21 +23,17 @@ enabled as a user service, typically with:
 systemctl --user enable --now podman.service
 ```
 
-Then install `dev-isolator` from a source checkout:
-
-```bash
-pip install -e .
-```
-
-Alternatively, install it with
-[`pipx`](https://pipx.pypa.io/stable/), which runs the CLI in an
-isolated virtual environment without touching your main Python
+The recommended way to install `dev-isolator` is [`pipx`](https://pipx.pypa.io/stable/), 
+which runs the CLI in an isolated virtual environment without touching your main Python
 environment:
-
-```bash
-pipx install . 
+```bash 
+pipx install dev-isolator
 ```
-from the source directory.
+
+Alternatively, one can use `pip`:
+```bash
+pip install dev-isolator
+```
 
 Both `dev-isolator` and `di` end up on your `PATH` this way.
 
