@@ -98,7 +98,7 @@ class WaitSpinner:
         if self._thread is not None:
             self._thread.join()
         if exc_type is None:
-            summary = f"✨ {self._message} {self._final} done in " \
+            summary = f"✨ {self._message} {self._final} in " \
                       f"{time.monotonic() - self._started:.1f}s " \
                       f"{self._add_text}"
             if self._animate:
